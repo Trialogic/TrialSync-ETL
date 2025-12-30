@@ -1,0 +1,278 @@
+      routine_name       |                                                    definition                                                    
+-------------------------+------------------------------------------------------------------------------------------------------------------
+ load_all_new_dimensions | CREATE OR REPLACE PROCEDURE public.load_all_new_dimensions()                                                    +
+                         |  LANGUAGE plpgsql                                                                                               +
+                         | AS $procedure$                                                                                                  +
+                         | BEGIN                                                                                                           +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         |   RAISE NOTICE 'Starting load_all_new_dimensions() - Master ETL';                                               +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         |                                                                                                                 +
+                         |   BEGIN                                                                                                         +
+                         |     CALL load_dw_dim_site();                                                                                    +
+                         |   EXCEPTION WHEN OTHERS THEN                                                                                    +
+                         |     RAISE EXCEPTION 'Error in load_all_new_dimensions(): Error in load_dw_dim_site(): %', SQLERRM;              +
+                         |   END;                                                                                                          +
+                         |                                                                                                                 +
+                         |   BEGIN                                                                                                         +
+                         |     CALL load_dw_dim_monitor();                                                                                 +
+                         |   EXCEPTION WHEN OTHERS THEN                                                                                    +
+                         |     RAISE EXCEPTION 'Error in load_all_new_dimensions(): Error in load_dw_dim_monitor(): %', SQLERRM;           +
+                         |   END;                                                                                                          +
+                         |                                                                                                                 +
+                         |   BEGIN                                                                                                         +
+                         |     CALL load_dw_dim_medical_code();                                                                            +
+                         |   EXCEPTION WHEN OTHERS THEN                                                                                    +
+                         |     RAISE EXCEPTION 'Error in load_all_new_dimensions(): Error in load_dw_dim_medical_code(): %', SQLERRM;      +
+                         |   END;                                                                                                          +
+                         |                                                                                                                 +
+                         |   BEGIN                                                                                                         +
+                         |     CALL load_dw_dim_patient_engagement();                                                                      +
+                         |   EXCEPTION WHEN OTHERS THEN                                                                                    +
+                         |     RAISE EXCEPTION 'Error in load_all_new_dimensions(): Error in load_dw_dim_patient_engagement(): %', SQLERRM;+
+                         |   END;                                                                                                          +
+                         |                                                                                                                 +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         |   RAISE NOTICE 'load_all_new_dimensions() completed successfully';                                              +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         | END;                                                                                                            +
+                         | $procedure$                                                                                                     +
+                         | 
+ load_all_new_facts      | CREATE OR REPLACE PROCEDURE public.load_all_new_facts()                                                         +
+                         |  LANGUAGE plpgsql                                                                                               +
+                         | AS $procedure$                                                                                                  +
+                         | BEGIN                                                                                                           +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         |   RAISE NOTICE 'Starting load_all_new_facts() - Master ETL';                                                    +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         |                                                                                                                 +
+                         |   BEGIN                                                                                                         +
+                         |     CALL load_dw_fact_subject_status_change();                                                                  +
+                         |   EXCEPTION WHEN OTHERS THEN                                                                                    +
+                         |     RAISE EXCEPTION 'Error in load_all_new_facts(): Error in load_dw_fact_subject_status_change(): %', SQLERRM; +
+                         |   END;                                                                                                          +
+                         |                                                                                                                 +
+                         |   BEGIN                                                                                                         +
+                         |     CALL load_dw_fact_patient_engagement();                                                                     +
+                         |   EXCEPTION WHEN OTHERS THEN                                                                                    +
+                         |     RAISE EXCEPTION 'Error in load_all_new_facts(): Error in load_dw_fact_patient_engagement(): %', SQLERRM;    +
+                         |   END;                                                                                                          +
+                         |                                                                                                                 +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         |   RAISE NOTICE 'load_all_new_facts() completed successfully';                                                   +
+                         |   RAISE NOTICE '============================================================';                                  +
+                         | END;                                                                                                            +
+                         | $procedure$                                                                                                     +
+                         | 
+ load_dw_dim_study       | CREATE OR REPLACE PROCEDURE public.load_dw_dim_study()                                                          +
+                         |  LANGUAGE plpgsql                                                                                               +
+                         | AS $procedure$                                                                                                  +
+                         | DECLARE                                                                                                         +
+                         |   v_rows_inserted INTEGER := 0;                                                                                 +
+                         |   v_rows_updated INTEGER := 0;                                                                                  +
+                         | BEGIN                                                                                                           +
+                         |   -- Step 1: Expire changed records (set end_date)                                                              +
+                         |   UPDATE dw_dim_study ds                                                                                        +
+                         |   SET                                                                                                           +
+                         |     end_date = CURRENT_DATE - INTERVAL '1 day',                                                                 +
+                         |     is_current = FALSE,                                                                                         +
+                         |     updated_at = NOW()                                                                                          +
+                         |   FROM dim_studies_staging stg                                                                                  +
+                         |   WHERE ds.study_id = (stg.data->>'id')::INTEGER                                                                +
+                         |     AND ds.is_current = TRUE                                                                                    +
+                         |     AND (                                                                                                       +
+                         |       ds.study_name != stg.data->>'name' OR                                                                     +
+                         |       COALESCE(ds.study_status, '') != COALESCE(stg.data->>'status', '')                                        +
+                         |     );                                                                                                          +
+                         |                                                                                                                 +
+                         |   GET DIAGNOSTICS v_rows_updated = ROW_COUNT;                                                                   +
+                         |                                                                                                                 +
+                         |   -- Step 2: Insert new/changed records                                                                         +
+                         |   INSERT INTO dw_dim_study (                                                                                    +
+                         |     study_id,                                                                                                   +
+                         |     study_uid,                                                                                                  +
+                         |     study_name,                                                                                                 +
+                         |     protocol_number,                                                                                            +
+                         |     nct_number,                                                                                                 +
+                         |     study_phase,                                                                                                +
+                         |     study_status,                                                                                               +
+                         |     study_title,                                                                                                +
+                         |     study_description,                                                                                          +
+                         |     sponsor_id,                                                                                                 +
+                         |     sponsor_name,                                                                                               +
+                         |     sponsor_division_id,                                                                                        +
+                         |     sponsor_division_name,                                                                                      +
+                         |     organization_id,                                                                                            +
+                         |     organization_name,                                                                                          +
+                         |     managing_site_id,                                                                                           +
+                         |     managing_site_name,                                                                                         +
+                         |     launch_year,                                                                                                +
+                         |     created_date,                                                                                               +
+                         |     last_updated_date,                                                                                          +
+                         |     effective_date,                                                                                             +
+                         |     end_date,                                                                                                   +
+                         |     is_current,                                                                                                 +
+                         |     source_record_id                                                                                            +
+                         |   )                                                                                                             +
+                         |   SELECT                                                                                                        +
+                         |     (data->>'id')::INTEGER,                                                                                     +
+                         |     (data->>'uid')::UUID,                                                                                       +
+                         |     data->>'name',                                                                                              +
+                         |     data->>'protocolNumber',                                                                                    +
+                         |     data->>'nctNumber',                                                                                         +
+                         |     data->>'phase',                                                                                             +
+                         |     data->>'status',                                                                                            +
+                         |     data->>'title',                                                                                             +
+                         |     data->>'description',                                                                                       +
+                         |     (data->'sponsor'->>'id')::INTEGER,                                                                          +
+                         |     data->'sponsor'->>'name',                                                                                   +
+                         |     (data->'sponsorDivision'->>'id')::INTEGER,                                                                  +
+                         |     data->'sponsorDivision'->>'name',                                                                           +
+                         |     (data->'organization'->>'id')::INTEGER,                                                                     +
+                         |     data->'organization'->>'name',                                                                              +
+                         |     (data->'managingSite'->>'id')::INTEGER,                                                                     +
+                         |     data->'managingSite'->>'name',                                                                              +
+                         |     (data->>'launchYear')::INTEGER,                                                                             +
+                         |     (data->>'createdOn')::DATE,                                                                                 +
+                         |     (data->>'lastUpdatedOn')::DATE,                                                                             +
+                         |     CURRENT_DATE,                                                                                               +
+                         |     NULL,                                                                                                       +
+                         |     TRUE,                                                                                                       +
+                         |     id                                                                                                          +
+                         |   FROM dim_studies_staging stg                                                                                  +
+                         |   WHERE NOT EXISTS (                                                                                            +
+                         |     SELECT 1 FROM dw_dim_study ds                                                                               +
+                         |     WHERE ds.study_id = (stg.data->>'id')::INTEGER                                                              +
+                         |       AND ds.is_current = TRUE                                                                                  +
+                         |   );                                                                                                            +
+                         |                                                                                                                 +
+                         |   GET DIAGNOSTICS v_rows_inserted = ROW_COUNT;                                                                  +
+                         |                                                                                                                 +
+                         |   RAISE NOTICE 'dw_dim_study: % rows inserted, % rows expired', v_rows_inserted, v_rows_updated;                +
+                         | END;                                                                                                            +
+                         | $procedure$                                                                                                     +
+                         | 
+ load_dw_dim_subject     | CREATE OR REPLACE PROCEDURE public.load_dw_dim_subject()                                                        +
+                         |  LANGUAGE plpgsql                                                                                               +
+                         | AS $procedure$                                                                                                  +
+                         | DECLARE                                                                                                         +
+                         |   v_rows_inserted INTEGER := 0;                                                                                 +
+                         |   v_rows_updated INTEGER := 0;                                                                                  +
+                         | BEGIN                                                                                                           +
+                         |   -- Expire changed records (status changes)                                                                    +
+                         |   UPDATE dw_dim_subject dsub                                                                                    +
+                         |   SET                                                                                                           +
+                         |     end_date = CURRENT_DATE - INTERVAL '1 day',                                                                 +
+                         |     is_current = FALSE,                                                                                         +
+                         |     updated_at = NOW()                                                                                          +
+                         |   FROM (                                                                                                        +
+                         |     SELECT DISTINCT ON ((data->>'id')::INTEGER)                                                                 +
+                         |       (data->>'id')::INTEGER as subject_id,                                                                     +
+                         |       data->>'status' as status,                                                                                +
+                         |       data->>'treatmentStatus' as treatment_status                                                              +
+                         |     FROM dim_subjects_staging                                                                                   +
+                         |     WHERE (data->>'id') IS NOT NULL                                                                             +
+                         |     ORDER BY (data->>'id')::INTEGER, id DESC                                                                    +
+                         |   ) stg                                                                                                         +
+                         |   WHERE dsub.subject_id = stg.subject_id                                                                        +
+                         |     AND dsub.is_current = TRUE                                                                                  +
+                         |     AND (                                                                                                       +
+                         |       COALESCE(dsub.subject_status, '') != COALESCE(stg.status, '') OR                                          +
+                         |       COALESCE(dsub.treatment_status, '') != COALESCE(stg.treatment_status, '')                                 +
+                         |     );                                                                                                          +
+                         |                                                                                                                 +
+                         |   GET DIAGNOSTICS v_rows_updated = ROW_COUNT;                                                                   +
+                         |                                                                                                                 +
+                         |   -- Insert new/changed records (use DISTINCT ON to get latest record per subject)                              +
+                         |   INSERT INTO dw_dim_subject (                                                                                  +
+                         |     subject_id,                                                                                                 +
+                         |     subject_uid,                                                                                                +
+                         |     screening_number,                                                                                           +
+                         |     gender_code,                                                                                                +
+                         |     race,                                                                                                       +
+                         |     date_of_birth,                                                                                              +
+                         |     age_at_enrollment,                                                                                          +
+                         |     study_key,                                                                                                  +
+                         |     study_id,                                                                                                   +
+                         |     site_id,                                                                                                    +
+                         |     site_name,                                                                                                  +
+                         |     patient_id,                                                                                                 +
+                         |     patient_uid,                                                                                                +
+                         |     patient_name,                                                                                               +
+                         |     subject_status,                                                                                             +
+                         |     treatment_status,                                                                                           +
+                         |     enrollment_date,                                                                                            +
+                         |     effective_date,                                                                                             +
+                         |     end_date,                                                                                                   +
+                         |     is_current,                                                                                                 +
+                         |     source_record_id                                                                                            +
+                         |   )                                                                                                             +
+                         |   SELECT                                                                                                        +
+                         |     subject_id,                                                                                                 +
+                         |     subject_uid,                                                                                                +
+                         |     screening_number,                                                                                           +
+                         |     gender_code,                                                                                                +
+                         |     race,                                                                                                       +
+                         |     date_of_birth,                                                                                              +
+                         |     age_at_enrollment,                                                                                          +
+                         |     study_key,                                                                                                  +
+                         |     study_id,                                                                                                   +
+                         |     site_id,                                                                                                    +
+                         |     site_name,                                                                                                  +
+                         |     patient_id,                                                                                                 +
+                         |     patient_uid,                                                                                                +
+                         |     patient_name,                                                                                               +
+                         |     subject_status,                                                                                             +
+                         |     treatment_status,                                                                                           +
+                         |     enrollment_date,                                                                                            +
+                         |     CURRENT_DATE as effective_date,                                                                             +
+                         |     NULL as end_date,                                                                                           +
+                         |     TRUE as is_current,                                                                                         +
+                         |     source_record_id                                                                                            +
+                         |   FROM (                                                                                                        +
+                         |     SELECT DISTINCT ON ((stg.data->>'id')::INTEGER)                                                             +
+                         |       (stg.data->>'id')::INTEGER as subject_id,                                                                 +
+                         |       (stg.data->>'uid')::UUID as subject_uid,                                                                  +
+                         |       stg.data->>'screeningNumber' as screening_number,                                                         +
+                         |       stg.data->>'genderCode' as gender_code,                                                                   +
+                         |       stg.data->>'race' as race,                                                                                +
+                         |       (stg.data->>'dateOfBirth')::DATE as date_of_birth,                                                        +
+                         |       CASE                                                                                                      +
+                         |         WHEN (stg.data->>'enrollmentDate') IS NOT NULL AND (stg.data->>'dateOfBirth') IS NOT NULL               +
+                         |         THEN EXTRACT(YEAR FROM AGE(                                                                             +
+                         |           (stg.data->>'enrollmentDate')::TIMESTAMP,                                                             +
+                         |           (stg.data->>'dateOfBirth')::DATE                                                                      +
+                         |         ))::INTEGER                                                                                             +
+                         |         ELSE NULL                                                                                               +
+                         |       END as age_at_enrollment,                                                                                 +
+                         |       ds.study_key,                                                                                             +
+                         |       (stg.data->'study'->>'id')::INTEGER as study_id,                                                          +
+                         |       (stg.data->'site'->>'id')::INTEGER as site_id,                                                            +
+                         |       stg.data->'site'->>'name' as site_name,                                                                   +
+                         |       (stg.data->'patient'->>'id')::INTEGER as patient_id,                                                      +
+                         |       (stg.data->'patient'->>'uid')::UUID as patient_uid,                                                       +
+                         |       stg.data->'patient'->>'name' as patient_name,                                                             +
+                         |       stg.data->>'status' as subject_status,                                                                    +
+                         |       stg.data->>'treatmentStatus' as treatment_status,                                                         +
+                         |       (stg.data->>'enrollmentDate')::DATE as enrollment_date,                                                   +
+                         |       stg.id as source_record_id                                                                                +
+                         |     FROM dim_subjects_staging stg                                                                               +
+                         |     JOIN dw_dim_study ds ON ds.study_id = (stg.data->'study'->>'id')::INTEGER                                   +
+                         |       AND ds.is_current = TRUE                                                                                  +
+                         |     WHERE (stg.data->>'id') IS NOT NULL                                                                         +
+                         |     ORDER BY (stg.data->>'id')::INTEGER, stg.id DESC                                                            +
+                         |   ) latest_subjects                                                                                             +
+                         |   WHERE NOT EXISTS (                                                                                            +
+                         |     SELECT 1 FROM dw_dim_subject dsub                                                                           +
+                         |     WHERE dsub.subject_id = latest_subjects.subject_id                                                          +
+                         |       AND dsub.is_current = TRUE                                                                                +
+                         |   );                                                                                                            +
+                         |                                                                                                                 +
+                         |   GET DIAGNOSTICS v_rows_inserted = ROW_COUNT;                                                                  +
+                         |                                                                                                                 +
+                         |   RAISE NOTICE 'dw_dim_subject: % rows inserted, % rows expired', v_rows_inserted, v_rows_updated;              +
+                         | END;                                                                                                            +
+                         | $procedure$                                                                                                     +
+                         | 
+(4 rows)
+

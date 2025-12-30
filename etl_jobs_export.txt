@@ -1,0 +1,90 @@
+1|Sites|/api/v1/sites|dim_sites_staging|Active|No|-|-|-|success|40
+2|Studies|/api/v1/studies/odata|dim_studies_staging|Active|No|-|-|-|success|1050
+3|Patients|/api/v1/patients/odata|dim_patients_staging|Active|No|-|-|-|Never run|152751
+4|Users|/api/v1/users/odata|dim_users_staging|Disabled|No|-|-|-|failed|0
+5|Roles|/api/v1/roles/odata|dim_roles_staging|Disabled|No|-|-|-|failed|0
+6|Departments|/api/v1/departments/odata|dim_departments_staging|Disabled|No|-|-|-|failed|0
+7|Audits|/api/v1/audits/odata|dim_audits_staging|Disabled|No|-|-|-|failed|0
+8|Elements|/api/v1/elements/odata|dim_elements_staging|Active|No|-|-|-|success|15836
+9|PatientVisits|/api/v1/patient-visits/odata|dim_patient_visits_staging|Active|No|-|-|-|failed|0
+10|Subjects|/api/v1/studies/{studyId}/subjects/odata|dim_subjects_staging|Active|Yes|studyId|dim_studies_staging|data->>'id'|success|17238
+11|Visits|/api/v1/studies/{studyId}/visits/odata|dim_visits_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+12|Forms|/api/v1/studies/{studyId}/forms/odata|dim_forms_staging|Disabled|Yes|studyId|dim_studies_staging|id|failed|0
+13|StudyDocuments|/api/v1/studies/{studyId}/documents/odata|dim_study_documents_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+14|Screenings|/api/v1/studies/{studyId}/screenings/odata|dim_screenings_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+15|Enrollments|/api/v1/studies/{studyId}/enrollments/odata|dim_enrollments_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+16|Randomizations|/api/v1/studies/{studyId}/randomizations/odata|dim_randomizations_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+17|Withdrawals|/api/v1/studies/{studyId}/withdrawals/odata|dim_withdrawals_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+18|ProtocolDeviations|/api/v1/studies/{studyId}/protocol-deviations/odata|dim_protocol_deviations_staging|Disabled|Yes|studyId|dim_studies_staging|id|Never run|0
+19|AdverseEvents|/api/v1/studies/{studyId}/adverse-events/odata|dim_adverse_events_staging|Disabled|Yes|studyId|dim_studies_staging|id|Never run|0
+20|ConcomitantMedications|/api/v1/studies/{studyId}/concomitant-medications/odata|dim_concomitant_medications_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+21|LabResults|/api/v1/studies/{studyId}/lab-results/odata|dim_lab_results_staging|Disabled|Yes|studyId|dim_studies_staging|id|Never run|0
+22|Vitals|/api/v1/studies/{studyId}/vitals/odata|dim_vitals_staging|Disabled|Yes|studyId|dim_studies_staging|id|Never run|0
+23|Queries|/api/v1/studies/{studyId}/queries/odata|dim_queries_staging|Active|Yes|studyId|dim_studies_staging|id|success|0
+24|PatientVisitElements|/api/v1/patient-visits/{patientVisitId}/elements/odata|dim_patient_visit_elements_staging|Active|Yes|patientVisitId|dim_patient_visits_staging|id|failed|0
+25|Appointments|/api/v1/appointments/odata|dim_appointments_staging|Active|No|-|-|-|success|40893
+26|Staff|/api/v1/staff/odata|dim_staff_staging|Active|No|-|-|-|success|884
+27|StudyActions|/api/v1/studies/{studyId}/actions/odata|dim_study_actions_staging|Disabled|Yes|studyId|dim_studies_staging|data->>'id'|failed|0
+28|StudyMilestones|/api/v1/studies/{studyId}/milestones/odata|fact_study_milestones_staging|Active|Yes|studyId|dim_studies_staging|data->>'id'|success|0
+29|StudyNotes|/api/v1/studies/{studyId}/notes/odata|fact_study_documents_staging|Active|Yes|studyId|dim_studies_staging|data->>'id'|success|0
+30|MonitorQueries|/api/v1/monitor-queries/odata|dim_monitor_queries_staging|Disabled|No|-|-|-|failed|0
+31|Engagements|/api/v1/engagements/odata|dim_engagements_staging|Disabled|No|-|-|-|failed|0
+32|Providers|/api/v1/providers/odata|dim_providers_staging|Active|No|-|-|-|success|149
+33|Rooms|/api/v1/rooms/odata|dim_rooms_staging|Active|No|-|-|-|success|58
+34|Schedules|/api/v1/schedules/odata|dim_schedules_staging|Active|No|-|-|-|success|10
+35|Sponsors|/api/v1/sponsors/odata|dim_sponsors_staging|Active|No|-|-|-|success|274
+120|System Allergies|/api/v1/system/allergies/odata|dim_system_allergies_staging|Active|No|-|-|-|success|936
+121|System Conditions|/api/v1/system/conditions/odata|dim_system_conditions_staging|Active|No|-|-|-|success|404
+122|System Medications|/api/v1/system/medications/odata|dim_system_medications_staging|Active|No|-|-|-|success|2295
+123|System Procedures|/api/v1/system/procedures/odata|dim_system_procedures_staging|Active|No|-|-|-|success|671
+124|System Immunizations|/api/v1/system/immunizations/odata|dim_system_immunizations_staging|Active|No|-|-|-|success|78
+125|System Devices|/api/v1/system/devices/odata|dim_system_devices_staging|Active|No|-|-|-|success|3294
+126|System Social History|/api/v1/system/social-history/odata|dim_system_social_history_staging|Active|No|-|-|-|success|120
+127|Subject Statuses|/api/v1/subject-statuses/odata|dim_subject_statuses_staging|Active|No|-|-|-|success|119749
+128|System Document Types|/api/v1/system/document-types|dim_system_document_types_staging|Active|No|-|-|-|success|20
+129|System Action Categories|/api/v1/system/action-categories|dim_system_action_categories_staging|Active|No|-|-|-|success|10
+130|System Study Categories|/api/v1/system/study-categories|dim_system_study_categories_staging|Active|No|-|-|-|success|106
+131|System Study Subcategories|/api/v1/system/study-subcategories|dim_system_study_subcategories_staging|Active|No|-|-|-|success|8
+132|System Study Statuses|/api/v1/system/study-statuses/odata|dim_system_study_statuses_staging|Active|No|-|-|-|Never run|15
+133|System Lookup Lists|/api/v1/system/lookup-lists|dim_system_lookup_lists_staging|Active|No|-|-|-|success|54
+134|System Patient Custom Fields|/api/v1/system/patient-customfields|dim_system_patient_customfields_staging|Active|No|-|-|-|success|9
+135|System Study Custom Fields|/api/v1/system/study-customfields|dim_system_study_customfields_staging|Active|No|-|-|-|success|0
+136|System Organizations|/api/v1/system/organizations|dim_system_organizations_staging|Active|No|-|-|-|success|1
+137|Sponsor Divisions|/api/v1/sponsor-divisions|dim_sponsor_divisions_staging|Active|No|-|-|-|success|274
+138|Sponsor Teams|/api/v1/sponsor-teams|dim_sponsor_teams_staging|Active|No|-|-|-|success|273
+139|Monitors|/api/v1/monitors|dim_monitors_staging|Active|No|-|-|-|success|34
+140|Room Groups|/api/v1/room-groups|dim_room_groups_staging|Active|No|-|-|-|success|0
+141|Study Arms|/api/v1/studies/{studyId}/arms|dim_study_arms_staging|Active|Yes|studyId|dim_studies_staging|id|success|455
+142|Study Protocol Versions|/api/v1/studies/{studyId}/protocol-versions|dim_study_protocol_versions_staging|Active|Yes|studyId|dim_studies_staging|data->>'id'|failed|0
+143|Study Roles|/api/v1/studies/{studyId}/roles|dim_study_roles_staging|Disabled|Yes|studyId|dim_studies_staging|data->>'id'|Never run|0
+144|Study Personnel|/api/v1/studies/{studyId}/personnel|dim_study_personnel_staging|Active|Yes|studyId|dim_studies_staging|data->>'id'|failed|0
+145|Study Warnings|/api/v1/studies/{studyId}/warnings|dim_study_warnings_staging|Active|Yes|studyId|dim_studies_staging|data->>'id'|failed|0
+146|Study Integration Info|/api/v1/studies/{studyId}/integration-info|dim_study_integration_info_staging|Disabled|Yes|studyId|dim_studies_staging|data->>'id'|Never run|0
+147|Patient Devices|/api/v1/patients/{patientId}/devices|dim_patient_devices_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|success|99
+148|Patient Allergies|/api/v1/patients/{patientId}/allergies|dim_patient_allergies_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|success|674
+149|Patient Providers|/api/v1/patients/{patientId}/providers|dim_patient_providers_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|Never run|0
+150|Patient Conditions|/api/v1/patients/{patientId}/conditions|dim_patient_conditions_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|Never run|0
+151|Patient Procedures|/api/v1/patients/{patientId}/procedures|dim_patient_procedures_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|Never run|0
+152|Patient Medications|/api/v1/patients/{patientId}/medications|dim_patient_medications_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|success|899
+153|Patient Immunizations|/api/v1/patients/{patientId}/immunizations|dim_patient_immunizations_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|Never run|0
+154|Patient Family History|/api/v1/patients/{patientId}/family-history|dim_patient_family_history_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|Never run|0
+155|Patient Social History|/api/v1/patients/{patientId}/social-history|dim_patient_social_history_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|Never run|0
+156|Patient Campaign Touches|/api/v1/patients/{patientId}/touches/campaign|dim_patient_campaign_touches_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|success|554
+157|Patient Referral Touches|/api/v1/patients/{patientId}/touches/referral|dim_patient_referral_touches_staging|Active|Yes|patientId|dim_patients_staging|data->>'id'|success|14
+158|Instance Details|/api/v1/instance/details|dim_instance_details_staging|Active|No|-|-|-|success|0
+159|Instance Topology|/api/v1/instance/topology|dim_instance_topology_staging|Active|No|-|-|-|success|0
+160|Subject Patient Visits|/api/v1/studies/{studyId}/subjects/{subjectId}/patient-visits|dim_patient_visits_staging|Active|Yes|subjectId|dim_subjects_staging|data->>'id'|success|25374
+161|Patient Visit Stipends|/api/v1/patient-visits/{patientVisitId}/stipends/odata|dim_patient_visit_stipends_staging|Active|Yes|patientVisitId|dim_patient_visits_staging|data->>'id'|failed|0
+164|Studies List|/api/v1/studies|dim_studies_staging|Active|No|-|-|-|Never run|0
+165|Study Detail|/api/v1/studies/{studyId}|dim_study_detail_staging|Active|No|-|-|-|Never run|0
+166|Patient Visit Elements|/api/v1/patient-visits/{patientVisitId}/elements/odata|dim_visit_elements_staging|Active|Yes|patientVisitId|dim_patient_visits_staging|data->>'id'|Never run|0
+167|Action Unit Completions|/api/v1/action-unit-completions/odata|dim_action_unit_completions_staging|Active|No|-|-|-|Never run|0
+168|Invoices|/api/v1/invoices/odata|dim_invoices_staging|Active|No|-|-|-|Never run|0
+169|Prospects|/api/v1/prospects/odata|dim_prospects_staging|Active|No|-|-|-|Never run|0
+170|Remittances|/api/v1/remittances/odata|dim_remittances_staging|Active|No|-|-|-|Never run|0
+171|Remittance Notes|/api/v1/remittance-notes/odata|dim_remittance_notes_staging|Active|No|-|-|-|Never run|0
+172|Site Payments|/api/v1/site-payments/odata|dim_site_payments_staging|Active|No|-|-|-|Never run|0
+173|Study Types|/api/v1/study-types|dim_study_types_staging|Active|No|-|-|-|Never run|0
+174|Study Visit Arms|/api/v1/studies/{studyId}/visit-arms/odata|dim_study_visit_arms_staging|Active|Yes|studyId|dim_studies_staging|id|Never run|0
+175|Visit Elements by Study|/api/v1/studies/{studyId}/visit-elements/odata|dim_visit_element_relationships_staging|Active|Yes|studyId|dim_studies_staging|id|Never run|0
+176|Patient Payments|/api/v1/patient-payments/odata|dim_patient_payments_staging|Active|No|-|-|-|Never run|0

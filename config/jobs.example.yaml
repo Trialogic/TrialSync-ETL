@@ -1,0 +1,93 @@
+# ETL Job Configuration Example
+# Copy this file to jobs.yaml and customize as needed
+
+# Job scheduling configuration
+jobs:
+  # Studies - Core dimension
+  studies:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    priority: 1
+    timeout_seconds: 300
+    description: "Load all studies from Clinical Conductor"
+    
+  # Subjects - Depends on studies
+  subjects:
+    enabled: true
+    schedule: "0 3 * * *"  # Daily at 3 AM
+    priority: 2
+    depends_on: [studies]
+    timeout_seconds: 600
+    description: "Load all subjects (parameterized by study_id)"
+    
+  # Patient Visits - Depends on subjects
+  patient_visits:
+    enabled: true
+    schedule: "0 4 * * *"  # Daily at 4 AM
+    priority: 3
+    depends_on: [subjects]
+    timeout_seconds: 900
+    description: "Load all patient visits"
+    
+  # Sites - Reference data
+  sites:
+    enabled: true
+    schedule: "0 1 * * *"  # Daily at 1 AM
+    priority: 1
+    timeout_seconds: 180
+    description: "Load all clinical sites"
+    
+  # Sponsors - Reference data
+  sponsors:
+    enabled: true
+    schedule: "0 1 * * *"  # Daily at 1 AM
+    priority: 1
+    timeout_seconds: 180
+    description: "Load all study sponsors"
+
+# Transformation schedule
+transformations:
+  # Load dimensions after staging data is loaded
+  load_dimensions:
+    enabled: true
+    schedule: "0 5 * * *"  # Daily at 5 AM
+    priority: 10
+    depends_on: [studies, subjects, patient_visits, sites, sponsors]
+    timeout_seconds: 1800
+    description: "Transform Bronze to Silver layer (dimensions)"
+    
+  # Load facts after dimensions are loaded
+  load_facts:
+    enabled: true
+    schedule: "0 6 * * *"  # Daily at 6 AM
+    priority: 11
+    depends_on: [load_dimensions]
+    timeout_seconds: 1800
+    description: "Transform Bronze to Silver layer (facts)"
+    
+  # Refresh materialized views
+  refresh_views:
+    enabled: true
+    schedule: "0 7 * * *"  # Daily at 7 AM
+    priority: 12
+    depends_on: [load_facts]
+    timeout_seconds: 600
+    description: "Refresh Gold layer materialized views"
+
+# Global settings
+settings:
+  # Maximum number of jobs to run in parallel
+  max_parallel_jobs: 5
+  
+  # Retry configuration
+  max_retries: 3
+  retry_delay_seconds: 5
+  retry_backoff_multiplier: 2
+  
+  # Timeout configuration
+  default_timeout_seconds: 300
+  
+  # Notification settings
+  notify_on_success: false
+  notify_on_failure: true
+  notify_on_retry: false
