@@ -44,3 +44,6 @@ types-pyyaml>=6.0.12
 # Development
 ipython>=8.18.1
 ipdb>=0.13.13
+
+# Resilience
+tenacity>=8.2.3
