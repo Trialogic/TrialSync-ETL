@@ -32,7 +32,11 @@ class JobTimeoutError(Exception):
 
 
 class CheckpointData:
-    """Checkpoint data for resuming a job."""
+    """Checkpoint data for resuming a job.
+
+    Supports both pagination checkpoints (for single API calls) and
+    parameter checkpoints (for parameterized jobs like patient sub-endpoints).
+    """
 
     def __init__(
         self,
@@ -40,11 +44,18 @@ class CheckpointData:
         page_index: int = 0,
         total_records: int = 0,
         last_checkpoint_time: Optional[datetime] = None,
+        # Parameterized job checkpoint fields
+        parameter_index: int = 0,
+        failed_parameters: Optional[list[dict]] = None,
     ):
         self.skip = skip
         self.page_index = page_index
         self.total_records = total_records
         self.last_checkpoint_time = last_checkpoint_time or datetime.utcnow()
+        # For parameterized jobs: track which parameter we're at
+        self.parameter_index = parameter_index
+        # Track failed parameters for retry/reporting
+        self.failed_parameters = failed_parameters or []
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -55,6 +66,8 @@ class CheckpointData:
             "last_checkpoint_time": self.last_checkpoint_time.isoformat()
             if self.last_checkpoint_time
             else None,
+            "parameter_index": self.parameter_index,
+            "failed_parameters": self.failed_parameters,
         }
 
     @classmethod
@@ -71,6 +84,8 @@ class CheckpointData:
             page_index=data.get("page_index", 0),
             total_records=data.get("total_records", 0),
             last_checkpoint_time=last_checkpoint,
+            parameter_index=data.get("parameter_index", 0),
+            failed_parameters=data.get("failed_parameters", []),
         )
 
 
@@ -282,7 +297,8 @@ class JobExecutor:
                 existing_context = cursor.fetchone()[0]
                 if existing_context:
                     try:
-                        existing_dict = json.loads(existing_context)
+                        # Handle both dict (JSONB auto-deserialized) and string
+                        existing_dict = existing_context if isinstance(existing_context, dict) else json.loads(existing_context)
                         # Merge checkpoint into existing context
                         existing_dict["checkpoint"] = context_dict
                         run_context = json.dumps(existing_dict)
@@ -375,7 +391,8 @@ class JobExecutor:
                 return None
 
             try:
-                context = json.loads(row[0])
+                # Handle both dict (JSONB auto-deserialized) and string
+                context = row[0] if isinstance(row[0], dict) else json.loads(row[0])
                 checkpoint_data = context.get("checkpoint")
                 if checkpoint_data:
                     return CheckpointData.from_dict(checkpoint_data)
@@ -585,12 +602,40 @@ class JobExecutor:
                     param_name = param_match.group(1)
                     param_list = [{param_name: val} for val in param_values]
 
-                # Execute for each parameter set with error handling
+                # Execute for each parameter set with error handling and checkpointing
                 # Track failures to allow partial success
                 failed_params = []
                 successful_params = 0
+                start_index = 0
 
-                for param_set in param_list:
+                # Load checkpoint for parameterized job resume
+                if resume_from_checkpoint:
+                    checkpoint = self.get_checkpoint(run_id)
+                    if checkpoint and checkpoint.parameter_index > 0:
+                        start_index = checkpoint.parameter_index
+                        total_records = checkpoint.total_records
+                        failed_params = checkpoint.failed_parameters or []
+                        successful_params = start_index - len(failed_params)
+                        logger.info(
+                            "resuming_parameterized_job",
+                            job_id=job_id,
+                            run_id=run_id,
+                            start_index=start_index,
+                            total_params=len(param_list),
+                            previous_records=total_records,
+                            previous_failures=len(failed_params),
+                        )
+
+                # Checkpoint settings
+                checkpoint_interval_params = 100  # Save every N parameters
+                checkpoint_interval_seconds = 60  # Or every N seconds
+                last_checkpoint_time = time.time()
+
+                for param_index, param_set in enumerate(param_list):
+                    # Skip already processed parameters when resuming
+                    if param_index < start_index:
+                        continue
+
                     endpoint = self.substitute_parameters(
                         job_config.source_endpoint, param_set
                     )
@@ -607,7 +652,7 @@ class JobExecutor:
                             timestamp_field_name=job_config.timestamp_field_name,
                             parameters=param_set,
                             instance_id=job_config.source_instance_id,
-                            resume_from_checkpoint=resume_from_checkpoint,
+                            resume_from_checkpoint=False,  # Don't nest checkpoint resume
                             timeout_seconds=timeout_seconds,
                         )
 
@@ -615,7 +660,18 @@ class JobExecutor:
                         successful_params += 1
 
                     except JobTimeoutError:
-                        # Re-raise timeout errors - these should stop the job
+                        # Save checkpoint before re-raising timeout
+                        checkpoint = CheckpointData(
+                            parameter_index=param_index,
+                            total_records=total_records,
+                            failed_parameters=failed_params[-100:],  # Keep last 100 failures
+                        )
+                        self.update_run(
+                            run_id,
+                            "running",
+                            records_loaded=total_records,
+                            checkpoint=checkpoint,
+                        )
                         raise
 
                     except Exception as param_error:
@@ -634,9 +690,41 @@ class JobExecutor:
                             error=str(param_error),
                             failed_count=len(failed_params),
                             total_params=len(param_list),
+                            progress_pct=round((param_index + 1) / len(param_list) * 100, 1),
                         )
                         # Continue to next parameter
                         continue
+
+                    # Save checkpoint periodically
+                    current_time = time.time()
+                    params_since_checkpoint = (param_index + 1 - start_index)
+                    time_since_checkpoint = current_time - last_checkpoint_time
+
+                    if (params_since_checkpoint > 0 and
+                        params_since_checkpoint % checkpoint_interval_params == 0) or \
+                       time_since_checkpoint >= checkpoint_interval_seconds:
+                        checkpoint = CheckpointData(
+                            parameter_index=param_index + 1,
+                            total_records=total_records,
+                            failed_parameters=failed_params[-100:],  # Keep last 100 failures
+                        )
+                        self.update_run(
+                            run_id,
+                            "running",
+                            records_loaded=total_records,
+                            checkpoint=checkpoint,
+                        )
+                        last_checkpoint_time = current_time
+                        logger.info(
+                            "parameterized_job_checkpoint",
+                            job_id=job_id,
+                            run_id=run_id,
+                            parameter_index=param_index + 1,
+                            total_params=len(param_list),
+                            progress_pct=round((param_index + 1) / len(param_list) * 100, 2),
+                            total_records=total_records,
+                            failed_count=len(failed_params),
+                        )
 
                 # Log summary of parameter failures
                 if failed_params:
