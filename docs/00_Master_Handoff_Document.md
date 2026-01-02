@@ -195,7 +195,16 @@ cp .env.example .env
 
 ### Step 3: Access Database
 
-**Connect to Database**:
+**Connect to Database** (Local Development):
+```bash
+# Using DATABASE_URL from .env file
+psql $DATABASE_URL
+
+# Or explicitly:
+psql -h localhost -U chrisprader -d trialsync_dev
+```
+
+**Note**: For remote server access (production/staging), use:
 ```bash
 psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync
 ```
@@ -505,8 +514,15 @@ CALL load_dw_dim_example();
 
 **Solution**:
 ```bash
-# Test connection
-psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync -c "SELECT 1;"
+# Test connection (Local Development)
+psql $DATABASE_URL -c "SELECT 1;"
+
+# Or explicitly:
+psql -h localhost -U chrisprader -d trialsync_dev -c "SELECT 1;"
+
+# For remote server (production/staging):
+# psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync -c "SELECT 1;"
+```
 
 # Check if server is accessible
 ping tl-dev01.trialogic.ai

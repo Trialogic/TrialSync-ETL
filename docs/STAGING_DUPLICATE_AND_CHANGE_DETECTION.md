@@ -383,7 +383,11 @@ Once you run `sql/transformations/update_load_all_new_dimensions.sql`, the proce
 
 Run the update script:
 ```bash
-psql -d trialsync -f sql/transformations/update_load_all_new_dimensions.sql
+# Using DATABASE_URL from .env file
+psql $DATABASE_URL -f sql/transformations/update_load_all_new_dimensions.sql
+
+# Or explicitly:
+psql -h localhost -U chrisprader -d trialsync_dev -f sql/transformations/update_load_all_new_dimensions.sql
 ```
 
 This will add `load_dw_dim_patient()` to the master procedure so it runs automatically daily at 2 AM.

@@ -58,7 +58,7 @@ TrialSync uses a hybrid architecture combining Node.js for API services and Pyth
              ↓                              ↓
 ┌────────────────────────┐    ┌───────────────────────────────┐
 │  Python Services       │    │    PostgreSQL Database        │
-│  FastAPI + AI/ML       │    │    trialsync@tl-dev01         │
+│  FastAPI + AI/ML       │    │    trialsync_dev@localhost   │
 └────────────────────────┘    └───────────────────────────────┘
 ```
 
@@ -385,16 +385,26 @@ Located in `sql/silver_layer_expansion/etl_procedures/`:
 
 ### Executing SQL Scripts
 
-**From local machine**:
+**From local machine** (Local Development):
 ```bash
-# Connect to database
-psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync
+# Connect to database (using DATABASE_URL from .env)
+psql $DATABASE_URL
+
+# Or explicitly:
+psql -h localhost -U chrisprader -d trialsync_dev
 
 # Execute script
 \i sql/dimensional-model/create_fresh_dw_schema.sql
 
 # Or via command line
-psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync -f sql/dimensional-model/create_dimensions.sql
+psql $DATABASE_URL -f sql/dimensional-model/create_dimensions.sql
+# Or explicitly:
+psql -h localhost -U chrisprader -d trialsync_dev -f sql/dimensional-model/create_dimensions.sql
+```
+
+**Note**: For remote server access (production/staging on tl-dev01), use:
+```bash
+psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync
 ```
 
 **From Docker container**:

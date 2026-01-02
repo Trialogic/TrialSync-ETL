@@ -51,16 +51,18 @@ Clinical Conductor API
 
 ### Database Configuration
 
-**Host**: tl-dev01.trialogic.ai  
+**Host**: localhost  
 **Port**: 5432  
-**Database**: trialsync  
-**User**: trialsync  
+**Database**: trialsync_dev  
+**User**: chrisprader  
 **Schema**: public  
 
 **Connection String**:
 ```
-postgresql://trialsync:${PASSWORD}@tl-dev01.trialogic.ai:5432/trialsync
+postgresql://chrisprader@localhost:5432/trialsync_dev
 ```
+
+**Note**: Database connection details are configured in `.env` file via `DATABASE_URL`.
 
 ---
 

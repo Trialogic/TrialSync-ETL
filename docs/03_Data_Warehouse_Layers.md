@@ -857,7 +857,7 @@ COMMENT ON COLUMN dim_studies.is_current IS 'TRUE for current version of study, 
 
 ### Transformation Scripts
 - `/home/ubuntu/transformation_procedures.txt` - Full procedure definitions
-- Database: `trialsync` on `tl-dev01.trialogic.ai:5432`
+- Database: `trialsync_dev` on `localhost:5432` (configured via `DATABASE_URL` in `.env`)
 
 ### Documentation
 - `/home/ubuntu/docs/01_Clinical_Conductor_API_Reference.md` - API documentation

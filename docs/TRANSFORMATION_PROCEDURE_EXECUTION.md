@@ -121,8 +121,11 @@ Day 2, 2:00 AM: load_all_new_dimensions() runs
 To add `load_dw_dim_patient()` to the master procedure:
 
 ```bash
-# Run the update script
-psql -d trialsync -f sql/transformations/update_load_all_new_dimensions.sql
+# Using DATABASE_URL from .env file
+psql $DATABASE_URL -f sql/transformations/update_load_all_new_dimensions.sql
+
+# Or explicitly:
+psql -h localhost -U chrisprader -d trialsync_dev -f sql/transformations/update_load_all_new_dimensions.sql
 ```
 
 This will:
