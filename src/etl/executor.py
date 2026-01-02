@@ -585,28 +585,79 @@ class JobExecutor:
                     param_name = param_match.group(1)
                     param_list = [{param_name: val} for val in param_values]
 
-                # Execute for each parameter set
+                # Execute for each parameter set with error handling
+                # Track failures to allow partial success
+                failed_params = []
+                successful_params = 0
+
                 for param_set in param_list:
                     endpoint = self.substitute_parameters(
                         job_config.source_endpoint, param_set
                     )
 
-                    records = self._fetch_and_load(
-                        endpoint=endpoint,
-                        target_table=job_config.target_table,
-                        etl_job_id=job_id,
-                        etl_run_id=run_id,
-                        dry_run=dry_run,
-                        api_client=api_client,
-                        incremental_load=job_config.incremental_load,
-                        timestamp_field_name=job_config.timestamp_field_name,
-                        parameters=param_set,
-                        instance_id=job_config.source_instance_id,
-                        resume_from_checkpoint=resume_from_checkpoint,
-                        timeout_seconds=timeout_seconds,
+                    try:
+                        records = self._fetch_and_load(
+                            endpoint=endpoint,
+                            target_table=job_config.target_table,
+                            etl_job_id=job_id,
+                            etl_run_id=run_id,
+                            dry_run=dry_run,
+                            api_client=api_client,
+                            incremental_load=job_config.incremental_load,
+                            timestamp_field_name=job_config.timestamp_field_name,
+                            parameters=param_set,
+                            instance_id=job_config.source_instance_id,
+                            resume_from_checkpoint=resume_from_checkpoint,
+                            timeout_seconds=timeout_seconds,
+                        )
+
+                        total_records += records
+                        successful_params += 1
+
+                    except JobTimeoutError:
+                        # Re-raise timeout errors - these should stop the job
+                        raise
+
+                    except Exception as param_error:
+                        # Log individual parameter failure but continue with others
+                        failed_params.append({
+                            "parameters": param_set,
+                            "endpoint": endpoint,
+                            "error": str(param_error),
+                        })
+                        logger.warning(
+                            "parameter_execution_failed",
+                            job_id=job_id,
+                            run_id=run_id,
+                            parameters=param_set,
+                            endpoint=endpoint,
+                            error=str(param_error),
+                            failed_count=len(failed_params),
+                            total_params=len(param_list),
+                        )
+                        # Continue to next parameter
+                        continue
+
+                # Log summary of parameter failures
+                if failed_params:
+                    failure_rate = len(failed_params) / len(param_list) * 100
+                    logger.warning(
+                        "parameterized_job_partial_failures",
+                        job_id=job_id,
+                        run_id=run_id,
+                        total_params=len(param_list),
+                        successful_params=successful_params,
+                        failed_params=len(failed_params),
+                        failure_rate_pct=round(failure_rate, 2),
+                        failed_details=failed_params[:10],  # Log first 10 failures
                     )
 
-                    total_records += records
+                    # If ALL parameters failed, raise an error
+                    if successful_params == 0:
+                        raise RuntimeError(
+                            f"All {len(param_list)} parameter executions failed. "
+                            f"First error: {failed_params[0]['error']}"
+                        )
 
             else:
                 # Non-parameterized job
