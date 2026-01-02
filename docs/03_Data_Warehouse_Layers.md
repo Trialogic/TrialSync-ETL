@@ -531,6 +531,7 @@ BEGIN
     CALL load_dw_dim_monitor();
     CALL load_dw_dim_medical_code();
     CALL load_dw_dim_patient_engagement();
+    CALL load_dw_dim_patient();  -- Added: Patient dimension (Type 2 SCD)
     CALL load_dw_dim_study();
     CALL load_dw_dim_subject();
     CALL load_dw_dim_visit();
@@ -540,6 +541,11 @@ BEGIN
     RAISE NOTICE 'load_all_new_dimensions() completed';
 END;
 $$;
+```
+
+**Note**: To add `load_dw_dim_patient()` to the master procedure, run:
+```sql
+-- See sql/transformations/update_load_all_new_dimensions.sql
 ```
 
 **load_all_new_facts()** - Orchestrates all fact loads:
