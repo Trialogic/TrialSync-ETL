@@ -1012,6 +1012,10 @@ class JobExecutor:
                             item_repr=str(item)[:100],
                         )
                         continue
+                    # Inject parent parameters into item data for parameterized jobs
+                    # This enables triggers to extract patient_id, studyId, etc.
+                    if parameters:
+                        item["_parentId"] = str(list(parameters.values())[0])
                     current_batch.append({"data": item})
 
                     # When batch is full, load it to database
