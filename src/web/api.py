@@ -116,6 +116,7 @@ class JobListItem(BaseModel):
     requires_parameters: bool
     last_run_status: Optional[str] = None
     last_run_records: Optional[int] = None
+    last_run_at: Optional[str] = None
     schedule_cron: Optional[str] = None
 
 
@@ -248,7 +249,7 @@ async def list_jobs():
             cursor.execute(
                 """
                 SELECT id, name, source_endpoint, target_table, is_active,
-                       requires_parameters, last_run_status, last_run_records, schedule_cron
+                       requires_parameters, last_run_status, last_run_records, last_run_at, schedule_cron
                 FROM dw_etl_jobs
                 ORDER BY id
                 """
@@ -266,7 +267,8 @@ async def list_jobs():
                     requires_parameters=job[5],
                     last_run_status=job[6],
                     last_run_records=job[7],
-                    schedule_cron=job[8] if len(job) > 8 else None,
+                    last_run_at=str(job[8]) if job[8] else None,
+                    schedule_cron=job[9] if len(job) > 9 else None,
                 )
                 for job in jobs
             ]

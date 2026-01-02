@@ -80,50 +80,126 @@ Complete documentation is available in the `docs/` directory:
 
 ### Installation
 
+**Quick Setup (Recommended):**
+```bash
+# Run the automated setup script
+./scripts/setup-dev.sh
+```
+
+**Manual Setup:**
 ```bash
 # Clone the repository
 git clone https://github.com/Trialogic/TrialSync-ETL.git
 cd TrialSync-ETL
 
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
 # Copy environment variables
 cp .env.example .env
 # Edit .env with your credentials
-
-# Install dependencies (Python)
-pip install -r requirements.txt
-
-# Or install dependencies (Node.js)
-npm install
 ```
+
+**For detailed setup instructions, see [DEV_SETUP.md](DEV_SETUP.md)**
 
 ### Configuration
 
 Edit `.env` file with your credentials:
-
 ```env
-# Database
-DATABASE_HOST=tl-dev01.trialogic.ai
-DATABASE_PORT=5432
-DATABASE_NAME=trialsync
-DATABASE_USER=trialsync
-DATABASE_PASSWORD=<your-password>
 
-# Clinical Conductor API
-CC_API_BASE_URL=https://tektonresearch.clinicalconductor.com/CCSWEB
-CC_API_KEY=9ba73e89-0423-47c1-a50c-b78c7034efea
+# Database Configuration
+# Local PostgreSQL (migrated from tl-dev01)
+DATABASE_URL=postgresql://chrisprader@localhost:5432/trialsync_dev
+
+# GHL (GoHighLevel) OAuth Configuration
+# Get these from your GHL Developer Dashboard
+# https://marketplace.gohighlevel.com/
+GHL_CLIENT_ID=693c4d5224eee079d5f78251-mj35kncf
+GHL_CLIENT_SECRET=271ab80e-da52-44ce-8246-f70972159ca8
+GHL_REDIRECT_URI=http://localhost:3000/oauth/callback
+
+# Clinical Conductor API Configuration
+# Base URL for CC API (without trailing slash)
+CC_API_BASE_URL=https://usimportccs09-ccs.advarracloud.com/CCSWEB/api/v1
+# API Key for authentication (CCAPIKey header)
+CC_API_KEY=ac2dbadd-2bca-4101-bf9a-0a8d04493d05
+# Request timeout in milliseconds (default: 30000)
+CC_API_TIMEOUT=30000
+
+# ----------------------------------
+# Azure AD Authentication
+# ----------------------------------
+# Azure AD Tenant ID and Client ID for user authentication
+AZURE_TENANT_ID=77f73cfb-6d05-4193-8914-f73de480a916
+AZURE_CLIENT_ID=3ed5f726-70e0-49e2-8bbd-59462fcc64c5
+
+# ----------------------------------
+# Application Settings
+# ----------------------------------
+# Environment: development | production
+NODE_ENV=development
+# Port for Express server
+PORT=3000
+# Log level: debug | info | warn | error
+LOG_LEVEL=debug
+
+# ----------------------------------
+# Optional Settings
+# ----------------------------------
+# OAuth Portal URL (optional, for Manus integration)
+# VITE_OAUTH_PORTAL_URL=
+# App ID (optional)
+# VITE_APP_ID=
+# Frontend Forge API (optional)
+# VITE_FRONTEND_FORGE_API_KEY=
+# VITE_FRONTEND_FORGE_API_URL=
+
+# DEV ONLY: Authentication bypass
+BYPASS_AUTH=true
+VITE_BYPASS_AUTH=true
 ```
 
 ### Running ETL Jobs
 
+**Using the CLI:**
 ```bash
 # Execute a single job
-python src/etl/run_job.py --job-id 1
+python -m src.cli.main run --job-id 1
 
 # Execute all active jobs
-python src/etl/run_all.py
+python -m src.cli.main run --all
 
-# Schedule jobs
-python src/etl/scheduler.py
+# Dry run (no database writes)
+python -m src.cli.main run --job-id 1 --dry-run
+
+# Check job status
+python -m src.cli.main status --job-id 1
+
+# View execution history
+python -m src.cli.main history --limit 20
+
+# Retry a failed run
+python -m src.cli.main retry --run-id 123
+```
+
+**Using the Web UI:**
+```bash
+# Start the web server
+python -m src.web.server
+
+# Then open http://localhost:8000/ui in your browser
+```
+
+**Using the REST API:**
+```bash
+# Start the web server
+python -m src.web.server
+
+# API documentation available at http://localhost:8000/docs
 ```
 
 ---
@@ -171,7 +247,7 @@ TrialSync-ETL/
 
 ```bash
 # Connect to database
-psql -h tl-dev01.trialogic.ai -U trialsync -d trialsync
+psql -h localhost -U chrisprader -d trialsync_dev
 
 # View ETL jobs
 SELECT id, name, source_endpoint, is_active, last_run_status

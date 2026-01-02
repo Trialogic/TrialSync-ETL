@@ -1,0 +1,22 @@
+[
+  {
+    "fileName": "main-overview.mdc",
+    "description": "Complete system overview documenting the ETL architecture, multi-tenant design, and clinical trial data synchronization patterns"
+  },
+  {
+    "fileName": "etl-orchestration.mdc",
+    "description": "Detailed documentation of the DAG-based ETL orchestration system, including dependency management, parallel execution, and failure handling algorithms"
+  },
+  {
+    "fileName": "data-models.mdc",
+    "description": "Comprehensive documentation of clinical trial data models, JSONB structures, and lineage tracking implementation"
+  },
+  {
+    "fileName": "data-flow.mdc",
+    "description": "End-to-end data flow documentation covering API integration, staging processes, and warehouse loading patterns with multi-tenant considerations"
+  },
+  {
+    "fileName": "clinical-conductor-integration.mdc",
+    "description": "Detailed documentation of Clinical Conductor API integration, including OData query handling, pagination strategies, and production safety controls"
+  }
+]

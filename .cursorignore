@@ -1,0 +1,14 @@
+--- file: .cursorignore
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
+build/
+node_modules/
+.env*
+.sqlx/
+.coverage
+htmlcov/
+*.log
+*.sqlite
+*.pyc

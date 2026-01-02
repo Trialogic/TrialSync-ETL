@@ -273,15 +273,16 @@ CREATE TABLE dim_example_staging (
 
 ```env
 # Database
-DATABASE_HOST=tl-dev01.trialogic.ai
+DATABASE_HOST=localhost
 DATABASE_PORT=5432
-DATABASE_NAME=trialsync
-DATABASE_USER=trialsync
+DATABASE_NAME=trialsync-dev
+DATABASE_USER=chrisprader
 DATABASE_PASSWORD=<provided separately>
 
-# Clinical Conductor API
-CC_API_BASE_URL=https://tektonresearch.clinicalconductor.com/CCSWEB
-CC_API_KEY=9ba73e89-0423-47c1-a50c-b78c7034efea
+
+# Clinical Conductor API - Tekton TEST
+CC_API_BASE_URL=https://usimportccs09-ccs.advarracloud.com/CCSWEB
+CC_API_KEY=ac2dbadd-2bca-4101-bf9a-0a8d04493d05
 
 # ETL Settings
 ETL_BATCH_SIZE=1000

@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrialSync ETL - Job Management</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 16px;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        
+        .tab.active {
+            color: #2c3e50;
+            border-bottom-color: #2c3e50;
+            font-weight: bold;
+        }
+        
+        .tab:hover {
+            color: #2c3e50;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: auto;
+            max-width: 100%;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            table-layout: auto;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            width: 100%;
+            margin-top: 10px;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .table-wrapper table {
+            min-width: 800px;
+        }
+        
+        @media (max-width: 1200px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .card {
+                padding: 15px;
+            }
+            
+            .table-wrapper table {
+                min-width: 700px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .card {
+                padding: 10px;
+            }
+            
+            .table-wrapper table {
+                min-width: 600px;
+            }
+            
+            .btn {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-running {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status-skipped {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-group input {
+            width: auto;
+        }
+        
+        .alert {
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .job-group {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .job-group-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .job-group-header:hover {
+            background: #e9ecef;
+        }
+        
+        .job-group-header .group-count {
+            color: #666;
+            font-size: 14px;
+            font-weight: normal;
+        }
+        
+        .job-group-content {
+            display: none;
+        }
+        
+        .job-group-content.expanded {
+            display: block;
+        }
+        
+        .job-group-icon {
+            transition: transform 0.2s;
+        }
+        
+        .job-group-icon.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            color: #2c3e50;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-close:hover {
+            color: #2c3e50;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .form-row > div {
+            flex: 1;
+        }
+        
+        .checkbox-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .checkbox-item input {
+            width: auto;
+        }
+        
+        .cron-preview {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 14px;
+            border: 1px solid #ddd;
+        }
+        
+        .cron-preview-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const API_BASE = 'http://localhost:8000';
+        
+        function App() {
+            const [activeTab, setActiveTab] = useState('jobs');
+            const [jobs, setJobs] = useState([]);
+            const [runs, setRuns] = useState([]);
+            const [schedules, setSchedules] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [message, setMessage] = useState(null);
+            const [selectedJob, setSelectedJob] = useState(null);
+            const [editingSchedule, setEditingSchedule] = useState(null);
+            const [scheduleCron, setScheduleCron] = useState('');
+            const [metrics, setMetrics] = useState(null);
+            const [metricsRefreshInterval, setMetricsRefreshInterval] = useState(null);
+            const [expandedGroups, setExpandedGroups] = useState({});
+            const [showCronEditor, setShowCronEditor] = useState(false);
+            const [cronEditorJobId, setCronEditorJobId] = useState(null);
+            const [cronSettings, setCronSettings] = useState({
+                hour: '2',
+                minute: '0',
+                recurrence: 'daily',
+                daysOfWeek: [],
+                dayOfMonth: '1',
+                weekOfMonth: '1',
+                month: '*'
+            });
+            
+            useEffect(() => {
+                if (activeTab === 'jobs') {
+                    loadJobs();
+                } else if (activeTab === 'history') {
+                    loadRuns();
+                } else if (activeTab === 'schedules') {
+                    loadSchedules();
+                } else if (activeTab === 'metrics') {
+                    loadMetrics();
+                    // Auto-refresh metrics every 5 seconds
+                    const interval = setInterval(loadMetrics, 5000);
+                    setMetricsRefreshInterval(interval);
+                    return () => {
+                        if (interval) clearInterval(interval);
+                    };
+                } else {
+                    // Clear interval when switching away from metrics
+                    if (metricsRefreshInterval) {
+                        clearInterval(metricsRefreshInterval);
+                        setMetricsRefreshInterval(null);
+                    }
+                }
+            }, [activeTab]);
+            
+            // Expand first group by default when jobs are loaded
+            useEffect(() => {
+                if (jobs.length > 0) {
+                    setExpandedGroups(prev => {
+                        if (Object.keys(prev).length === 0) {
+                            const groups = groupJobsByCategory(jobs);
+                            const firstGroup = Object.keys(groups)[0];
+                            if (firstGroup) {
+                                return { [firstGroup]: true };
+                            }
+                        }
+                        return prev;
+                    });
+                }
+            }, [jobs.length]);
+            
+            const loadJobs = async () => {
+                setLoading(true);
+                try {
+                    const response = await axios.get(`${API_BASE}/jobs`);
+                    setJobs(response.data);
+                } catch (error) {
+                    showMessage('Error loading jobs: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const loadRuns = async () => {
+                setLoading(true);
+                try {
+                    const response = await axios.get(`${API_BASE}/runs?limit=50`);
+                    setRuns(response.data);
+                } catch (error) {
+                    showMessage('Error loading history: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const loadSchedules = async () => {
+                setLoading(true);
+                try {
+                    const response = await axios.get(`${API_BASE}/jobs`);
+                    const schedulePromises = response.data.map(job =>
+                        axios.get(`${API_BASE}/jobs/${job.id}/schedule`).catch(() => null)
+                    );
+                    const scheduleResponses = await Promise.all(schedulePromises);
+                    const schedulesData = scheduleResponses
+                        .filter(r => r !== null)
+                        .map(r => r.data);
+                    setSchedules(schedulesData);
+                } catch (error) {
+                    showMessage('Error loading schedules: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const loadMetrics = async () => {
+                try {
+                    const response = await axios.get(`${API_BASE}/metrics`, {
+                        headers: { 'Accept': 'text/plain' }
+                    });
+                    const parsed = parsePrometheusMetrics(response.data);
+                    setMetrics(parsed);
+                } catch (error) {
+                    console.error('Error loading metrics:', error);
+                    setMetrics(null);
+                }
+            };
+            
+            const parsePrometheusMetrics = (text) => {
+                const lines = text.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+                const metrics = {
+                    jobs: [],
+                    api: [],
+                    db: [],
+                    system: []
+                };
+                
+                lines.forEach(line => {
+                    if (line.includes('trialsync_jobs_total')) {
+                        const match = line.match(/trialsync_jobs_total\{job_id="(\d+)",status="(\w+)"\} (\d+)/);
+                        if (match) {
+                            metrics.jobs.push({
+                                type: 'jobs_total',
+                                job_id: match[1],
+                                status: match[2],
+                                value: parseInt(match[3])
+                            });
+                        }
+                    } else if (line.includes('trialsync_job_duration_seconds')) {
+                        const match = line.match(/trialsync_job_duration_seconds\{job_id="(\d+)",status="(\w+)"\} ([\d.]+)/);
+                        if (match) {
+                            metrics.jobs.push({
+                                type: 'job_duration',
+                                job_id: match[1],
+                                status: match[2],
+                                value: parseFloat(match[3])
+                            });
+                        }
+                    } else if (line.includes('trialsync_records_loaded_total')) {
+                        const match = line.match(/trialsync_records_loaded_total\{job_id="(\d+)",table="([^"]+)"\} (\d+)/);
+                        if (match) {
+                            metrics.jobs.push({
+                                type: 'records_loaded',
+                                job_id: match[1],
+                                table: match[2],
+                                value: parseInt(match[3])
+                            });
+                        }
+                    } else if (line.includes('trialsync_api_requests_total')) {
+                        const match = line.match(/trialsync_api_requests_total\{route="([^"]+)",method="(\w+)",status_code="(\d+)"\} (\d+)/);
+                        if (match) {
+                            metrics.api.push({
+                                type: 'api_requests',
+                                route: match[1],
+                                method: match[2],
+                                status_code: match[3],
+                                value: parseInt(match[4])
+                            });
+                        }
+                    } else if (line.includes('trialsync_api_request_duration_seconds')) {
+                        const match = line.match(/trialsync_api_request_duration_seconds\{route="([^"]+)",method="(\w+)"\} ([\d.]+)/);
+                        if (match) {
+                            metrics.api.push({
+                                type: 'api_duration',
+                                route: match[1],
+                                method: match[2],
+                                value: parseFloat(match[3])
+                            });
+                        }
+                    } else if (line.includes('trialsync_db_pool_in_use')) {
+                        const match = line.match(/trialsync_db_pool_in_use\{component="([^"]+)"\} (\d+)/);
+                        if (match) {
+                            metrics.db.push({
+                                type: 'pool_in_use',
+                                component: match[1],
+                                value: parseInt(match[2])
+                            });
+                        }
+                    } else if (line.includes('trialsync_db_pool_size')) {
+                        const match = line.match(/trialsync_db_pool_size\{component="([^"]+)"\} (\d+)/);
+                        if (match) {
+                            metrics.db.push({
+                                type: 'pool_size',
+                                component: match[1],
+                                value: parseInt(match[2])
+                            });
+                        }
+                    } else if (line.includes('trialsync_running_jobs')) {
+                        const match = line.match(/trialsync_running_jobs (\d+)/);
+                        if (match) {
+                            metrics.system.push({
+                                type: 'running_jobs',
+                                value: parseInt(match[1])
+                            });
+                        }
+                    } else if (line.includes('trialsync_uptime_seconds')) {
+                        const match = line.match(/trialsync_uptime_seconds ([\d.]+)/);
+                        if (match) {
+                            metrics.system.push({
+                                type: 'uptime',
+                                value: parseFloat(match[1])
+                            });
+                        }
+                    }
+                });
+                
+                return metrics;
+            };
+            
+            const formatUptime = (seconds) => {
+                const days = Math.floor(seconds / 86400);
+                const hours = Math.floor((seconds % 86400) / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+                if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;
+                if (minutes > 0) return `${minutes}m ${secs}s`;
+                return `${secs}s`;
+            };
+            
+            const saveSchedule = async (jobId) => {
+                setLoading(true);
+                try {
+                    const cron = scheduleCron.trim() || null;
+                    await axios.put(`${API_BASE}/jobs/${jobId}/schedule`, {
+                        schedule_cron: cron
+                    });
+                    showMessage('Schedule updated successfully', 'success');
+                    setEditingSchedule(null);
+                    setScheduleCron('');
+                    loadSchedules();
+                    loadJobs();
+                } catch (error) {
+                    showMessage('Error saving schedule: ' + (error.response?.data?.detail || error.message), 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const deleteSchedule = async (jobId) => {
+                if (!confirm('Are you sure you want to remove this schedule?')) {
+                    return;
+                }
+                setLoading(true);
+                try {
+                    await axios.delete(`${API_BASE}/jobs/${jobId}/schedule`);
+                    showMessage('Schedule removed successfully', 'success');
+                    loadSchedules();
+                    loadJobs();
+                } catch (error) {
+                    showMessage('Error removing schedule: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const categorizeJob = (endpoint) => {
+                if (!endpoint) return 'Other';
+                const ep = endpoint.toLowerCase();
+                
+                // Study-Scoped: /studies/{studyId}/... or /studies/{studyId}...
+                if (ep.match(/\/studies\/\{[^}]+\}/) || (ep.includes('/studies/') && ep.split('/studies/')[1]?.includes('/'))) {
+                    return 'Study-Scoped Endpoints';
+                }
+                // Patient-Scoped: /patients/{patientId}/...
+                else if (ep.match(/\/patients\/\{[^}]+\}/) || (ep.includes('/patients/') && ep.split('/patients/')[1]?.includes('/') && !ep.includes('/patients/odata'))) {
+                    return 'Patient-Scoped Endpoints';
+                }
+                // Patient Visit: /patient-visits/{patientVisitId}/...
+                else if (ep.match(/\/patient-visits\/\{[^}]+\}/) || (ep.includes('/patient-visits/') && ep.split('/patient-visits/')[1]?.includes('/'))) {
+                    return 'Patient Visit Endpoints';
+                }
+                // System/Reference Data
+                else if (ep.includes('/system/')) {
+                    return 'System/Reference Data Endpoints';
+                }
+                // Instance Metadata
+                else if (ep.includes('/instance/')) {
+                    return 'Instance Metadata Endpoints';
+                }
+                // Core Entity (non-parameterized)
+                else {
+                    return 'Core Entity Endpoints';
+                }
+            };
+            
+            const groupJobsByCategory = (jobs) => {
+                const groups = {};
+                jobs.forEach(job => {
+                    const category = categorizeJob(job.source_endpoint);
+                    if (!groups[category]) {
+                        groups[category] = [];
+                    }
+                    groups[category].push(job);
+                });
+                return groups;
+            };
+            
+            const toggleGroup = (groupName) => {
+                setExpandedGroups(prev => ({
+                    ...prev,
+                    [groupName]: !prev[groupName]
+                }));
+            };
+            
+            const parseCronToSettings = (cron) => {
+                if (!cron || !cron.trim()) {
+                    return {
+                        hour: '2',
+                        minute: '0',
+                        recurrence: 'daily',
+                        daysOfWeek: [],
+                        dayOfMonth: '1',
+                        weekOfMonth: '1',
+                        month: '*'
+                    };
+                }
+                const parts = cron.trim().split(/\s+/);
+                if (parts.length < 5) {
+                    // Return defaults if invalid
+                    return {
+                        hour: '2',
+                        minute: '0',
+                        recurrence: 'daily',
+                        daysOfWeek: [],
+                        dayOfMonth: '1',
+                        weekOfMonth: '1',
+                        month: '*'
+                    };
+                }
+                
+                const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+                
+                let recurrence = 'daily';
+                let daysOfWeek = [];
+                let weekOfMonth = '1';
+                
+                // Check if it's weekly (has day of week specified)
+                if (dayOfWeek !== '*' && dayOfWeek !== '') {
+                    recurrence = 'weekly';
+                    daysOfWeek = dayOfWeek.split(',').map(d => {
+                        const num = parseInt(d.trim());
+                        return isNaN(num) ? null : num;
+                    }).filter(d => d !== null);
+                } 
+                // Check if it's monthly (has day of month specified)
+                else if (dayOfMonth !== '*' && dayOfMonth !== '') {
+                    recurrence = 'monthly';
+                }
+                
+                return {
+                    hour: hour === '*' ? '2' : (hour || '2'),
+                    minute: minute === '*' ? '0' : (minute || '0'),
+                    recurrence,
+                    daysOfWeek: daysOfWeek.length > 0 ? daysOfWeek : [],
+                    dayOfMonth: dayOfMonth === '*' ? '1' : (dayOfMonth || '1'),
+                    weekOfMonth,
+                    month: month === '*' ? '*' : month
+                };
+            };
+            
+            const settingsToCron = (settings) => {
+                const { hour, minute, recurrence, daysOfWeek, dayOfMonth, weekOfMonth } = settings;
+                
+                if (recurrence === 'daily') {
+                    return `${minute} ${hour} * * *`;
+                } else if (recurrence === 'weekly') {
+                    const days = daysOfWeek.length > 0 ? daysOfWeek.join(',') : '*';
+                    return `${minute} ${hour} * * ${days}`;
+                } else if (recurrence === 'monthly') {
+                    return `${minute} ${hour} ${dayOfMonth} * *`;
+                } else if (recurrence === 'monthly-week') {
+                    // For monthly-week, we use day of week with a day-of-month range
+                    // This is a simplified approach - full support would need complex cron expressions
+                    const dayOfWeek = daysOfWeek.length > 0 ? daysOfWeek[0] : '1';
+                    // Note: This is a simplified cron. Full monthly-week support requires more complex expressions
+                    // For now, we'll use the first occurrence of that day in the month
+                    return `${minute} ${hour} 1-7 * ${dayOfWeek}`;
+                }
+                return `${minute} ${hour} * * *`;
+            };
+            
+            const openCronEditor = (schedule) => {
+                const settings = parseCronToSettings(schedule?.schedule_cron);
+                if (settings) {
+                    setCronSettings(settings);
+                }
+                setCronEditorJobId(schedule?.job_id || null);
+                setShowCronEditor(true);
+            };
+            
+            const closeCronEditor = () => {
+                setShowCronEditor(false);
+                setCronEditorJobId(null);
+            };
+            
+            const saveCronFromEditor = async () => {
+                const cron = settingsToCron(cronSettings);
+                if (!cronEditorJobId) return;
+                
+                setLoading(true);
+                try {
+                    await axios.put(`${API_BASE}/jobs/${cronEditorJobId}/schedule`, {
+                        schedule_cron: cron
+                    });
+                    showMessage('Schedule updated successfully', 'success');
+                    closeCronEditor();
+                    loadSchedules();
+                    loadJobs();
+                } catch (error) {
+                    showMessage('Error saving schedule: ' + (error.response?.data?.detail || error.message), 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const startEditingSchedule = (schedule) => {
+                openCronEditor(schedule);
+            };
+            
+            const cancelEditing = () => {
+                setEditingSchedule(null);
+                setScheduleCron('');
+            };
+            
+            const runJob = async (jobId, dryRun = false) => {
+                setLoading(true);
+                try {
+                    const response = await axios.post(`${API_BASE}/jobs/${jobId}/run`, {
+                        dry_run: dryRun
+                    });
+                    showMessage(
+                        `Job ${jobId} ${response.data.status === 'success' ? 'completed' : 'failed'}: ${response.data.records_loaded} records`,
+                        response.data.status === 'success' ? 'success' : 'error'
+                    );
+                    loadJobs();
+                    if (activeTab === 'history') loadRuns();
+                } catch (error) {
+                    showMessage('Error running job: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const runAllJobs = async (dryRun = false) => {
+                if (!confirm(`Are you sure you want to run all active jobs${dryRun ? ' (dry run)' : ''}?`)) {
+                    return;
+                }
+                setLoading(true);
+                try {
+                    const response = await axios.post(`${API_BASE}/jobs/run-all`, {
+                        dry_run: dryRun
+                    });
+                    showMessage(
+                        `Executed ${response.data.total_jobs} jobs: ${response.data.successful} successful, ${response.data.failed} failed`,
+                        response.data.failed === 0 ? 'success' : 'error'
+                    );
+                    loadJobs();
+                    if (activeTab === 'history') loadRuns();
+                } catch (error) {
+                    showMessage('Error running all jobs: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const retryRun = async (runId) => {
+                setLoading(true);
+                try {
+                    const response = await axios.post(`${API_BASE}/runs/${runId}/retry`, {
+                        dry_run: false
+                    });
+                    showMessage(
+                        `Run ${runId} retried: ${response.data.status === 'success' ? 'success' : 'failed'}`,
+                        response.data.status === 'success' ? 'success' : 'error'
+                    );
+                    loadRuns();
+                } catch (error) {
+                    showMessage('Error retrying run: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const showMessage = (text, type) => {
+                setMessage({ text, type });
+                setTimeout(() => setMessage(null), 5000);
+            };
+            
+            const getStatusBadge = (status) => {
+                const className = `status-badge status-${status}`;
+                return <span className={className}>{status}</span>;
+            };
+            
+            const formatDateTimeWithTimezone = (dateString) => {
+                if (!dateString) return 'N/A';
+                try {
+                    const date = new Date(dateString);
+                    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                    return date.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        timeZoneName: 'short'
+                    }) + ` (${timezone})`;
+                } catch (e) {
+                    return dateString;
+                }
+            };
+            
+            const formatDateTimeShort = (dateString) => {
+                if (!dateString) return 'N/A';
+                try {
+                    const date = new Date(dateString);
+                    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                    return date.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                } catch (e) {
+                    return dateString;
+                }
+            };
+            
+            const formatDurationMinutes = (seconds) => {
+                if (seconds === null || seconds === undefined) return 'N/A';
+                const minutes = seconds / 60;
+                return minutes.toFixed(2) + ' min';
+            };
+            
+            return (
+                <div className="container">
+                    <header>
+                        <h1>TrialSync ETL - Job Management</h1>
+                        <p>Manage and monitor ETL jobs</p>
+                    </header>
+                    
+                    {message && (
+                        <div className={`alert alert-${message.type}`}>
+                            {message.text}
+                        </div>
+                    )}
+                    
+                    <div className="tabs">
+                        <button
+                            className={`tab ${activeTab === 'jobs' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('jobs')}
+                        >
+                            Jobs
+                        </button>
+                        <button
+                            className={`tab ${activeTab === 'schedules' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('schedules')}
+                        >
+                            Schedules
+                        </button>
+                        <button
+                            className={`tab ${activeTab === 'history' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('history')}
+                        >
+                            Execution History
+                        </button>
+                        <button
+                            className={`tab ${activeTab === 'metrics' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('metrics')}
+                        >
+                            Metrics
+                        </button>
+                    </div>
+                    
+                    {activeTab === 'jobs' && (
+                        <div className="card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <div>
+                                    <h2>ETL Jobs</h2>
+                                    <p style={{ fontSize: '12px', color: '#666', margin: '5px 0 0 0' }}>
+                                        Timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                                    </p>
+                                </div>
+                                <div>
+                                    <button
+                                        className="btn btn-secondary"
+                                        onClick={() => runAllJobs(true)}
+                                        disabled={loading}
+                                        style={{ marginRight: '10px' }}
+                                    >
+                                        Run All (Dry Run)
+                                    </button>
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={() => runAllJobs(false)}
+                                        disabled={loading}
+                                    >
+                                        Run All
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            {loading ? (
+                                <div className="loading">Loading...</div>
+                            ) : (
+                                <div>
+                                    {Object.entries(groupJobsByCategory(jobs)).map(([category, categoryJobs]) => (
+                                        <div key={category} className="job-group">
+                                            <div 
+                                                className="job-group-header"
+                                                onClick={() => toggleGroup(category)}
+                                            >
+                                                <div>
+                                                    <span className={`job-group-icon ${expandedGroups[category] ? 'expanded' : ''}`} style={{ marginRight: '10px' }}>▶</span>
+                                                    {category}
+                                                    <span className="group-count" style={{ marginLeft: '10px' }}>
+                                                        ({categoryJobs.length} {categoryJobs.length === 1 ? 'job' : 'jobs'})
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className={`job-group-content ${expandedGroups[category] ? 'expanded' : ''}`}>
+                                                <div className="table-wrapper">
+                                                    <table style={{ margin: 0 }}>
+                                                    <thead>
+                                                        <tr>
+                                                            <th>ID</th>
+                                                            <th>Name</th>
+                                                            <th>Endpoint</th>
+                                                            <th>Target Table</th>
+                                                            <th>Active</th>
+                                                            <th>Parameters</th>
+                                                            <th>Last Status</th>
+                                                            <th>Last Run Time</th>
+                                                            <th>Last Records</th>
+                                                            <th>Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {categoryJobs.map(job => (
+                                                            <tr key={job.id}>
+                                                                <td>{job.id}</td>
+                                                                <td>{job.name}</td>
+                                                                <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                    {job.source_endpoint}
+                                                                </td>
+                                                                <td>{job.target_table}</td>
+                                                                <td>{job.is_active ? 'Yes' : 'No'}</td>
+                                                                <td>{job.requires_parameters ? 'Yes' : 'No'}</td>
+                                                                <td>{getStatusBadge(job.last_run_status || 'N/A')}</td>
+                                                                <td style={{ fontSize: '12px' }}>
+                                                                    {job.last_run_at ? formatDateTimeShort(job.last_run_at) : 'Never'}
+                                                                </td>
+                                                                <td>{job.last_run_records || 0}</td>
+                                                                <td>
+                                                                    <div className="actions">
+                                                                        <button
+                                                                            className="btn btn-success"
+                                                                            onClick={() => runJob(job.id, true)}
+                                                                            disabled={loading || !job.is_active}
+                                                                            style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                                        >
+                                                                            Dry Run
+                                                                        </button>
+                                                                        <button
+                                                                            className="btn btn-primary"
+                                                                            onClick={() => runJob(job.id, false)}
+                                                                            disabled={loading || !job.is_active}
+                                                                            style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                                        >
+                                                                            Run
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    {activeTab === 'schedules' && (
+                        <div className="card">
+                            <div style={{ marginBottom: '20px' }}>
+                                <h2>Job Schedules</h2>
+                                <p style={{ fontSize: '12px', color: '#666', margin: '5px 0 0 0' }}>
+                                    Timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                                </p>
+                            </div>
+                            <p style={{ marginBottom: '20px', color: '#666' }}>
+                                Manage cron schedules for ETL jobs. Click "Edit" or "Add" to use the graphical schedule editor.
+                                <br />
+                                The editor will convert your selections into a cron expression automatically.
+                            </p>
+                            
+                            {loading ? (
+                                <div className="loading">Loading...</div>
+                            ) : (
+                                <div className="table-wrapper">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Job ID</th>
+                                                <th>Job Name</th>
+                                                <th>Schedule (Cron)</th>
+                                                <th>Next Run</th>
+                                                <th>Status</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {schedules.map(schedule => (
+                                            <tr key={schedule.job_id}>
+                                                <td>{schedule.job_id}</td>
+                                                <td>{schedule.job_name}</td>
+                                                <td>
+                                                    <code>{schedule.schedule_cron || 'Not scheduled'}</code>
+                                                </td>
+                                                <td style={{ fontSize: '12px' }}>
+                                                    {schedule.next_run_time 
+                                                        ? formatDateTimeWithTimezone(schedule.next_run_time)
+                                                        : 'N/A'}
+                                                </td>
+                                                <td>
+                                                    {schedule.is_scheduled ? (
+                                                        <span className="status-badge status-success">Scheduled</span>
+                                                    ) : (
+                                                        <span className="status-badge status-failed">Not Scheduled</span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    <div style={{ display: 'flex', gap: '5px' }}>
+                                                        <button
+                                                            className="btn btn-primary"
+                                                            onClick={() => openCronEditor(schedule)}
+                                                            disabled={loading}
+                                                            style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                        >
+                                                            {schedule.is_scheduled ? 'Edit' : 'Add'}
+                                                        </button>
+                                                        {schedule.is_scheduled && (
+                                                            <button
+                                                                className="btn btn-danger"
+                                                                onClick={() => deleteSchedule(schedule.job_id)}
+                                                                disabled={loading}
+                                                                style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    {activeTab === 'history' && (
+                        <div className="card">
+                            <div style={{ marginBottom: '20px' }}>
+                                <h2>Execution History</h2>
+                                <p style={{ fontSize: '12px', color: '#666', margin: '5px 0 0 0' }}>
+                                    Timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                                </p>
+                            </div>
+                            
+                            {loading ? (
+                                <div className="loading">Loading...</div>
+                            ) : (
+                                <div className="table-wrapper">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Run ID</th>
+                                            <th>Job ID</th>
+                                            <th>Job Name</th>
+                                            <th>Status</th>
+                                            <th>Records</th>
+                                            <th>Start Time</th>
+                                            <th>End Time</th>
+                                            <th>Duration</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {runs.map(run => (
+                                            <tr key={run.run_id}>
+                                                <td>{run.run_id}</td>
+                                                <td>{run.job_id}</td>
+                                                <td>{run.job_name}</td>
+                                                <td>{getStatusBadge(run.run_status)}</td>
+                                                <td>{run.records_loaded !== null && run.records_loaded !== undefined ? run.records_loaded : 0}</td>
+                                                <td style={{ fontSize: '12px' }}>
+                                                    {run.started_at ? formatDateTimeWithTimezone(run.started_at) : 'N/A'}
+                                                </td>
+                                                <td style={{ fontSize: '12px' }}>
+                                                    {run.completed_at ? formatDateTimeWithTimezone(run.completed_at) : (run.run_status === 'running' ? 'Running...' : 'N/A')}
+                                                </td>
+                                                <td>{formatDurationMinutes(run.duration_seconds)}</td>
+                                                <td>
+                                                    {run.run_status === 'failed' && (
+                                                        <button
+                                                            className="btn btn-danger"
+                                                            onClick={() => retryRun(run.run_id)}
+                                                            disabled={loading}
+                                                            style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                        >
+                                                            Retry
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    {activeTab === 'metrics' && (
+                        <div>
+                            <div className="card">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                    <h2>System Metrics</h2>
+                                    <span style={{ fontSize: '12px', color: '#666' }}>Auto-refreshing every 5 seconds</span>
+                                </div>
+                                
+                                {!metrics ? (
+                                    <div className="loading">Loading metrics...</div>
+                                ) : (
+                                    <div>
+                                        {/* System Metrics */}
+                                        <h3 style={{ marginTop: '20px', marginBottom: '10px', color: '#2c3e50' }}>System Status</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '15px', marginBottom: '30px' }}>
+                                            {metrics.system.find(m => m.type === 'uptime') && (
+                                                <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '4px' }}>
+                                                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>Uptime</div>
+                                                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#2c3e50' }}>
+                                                        {formatUptime(metrics.system.find(m => m.type === 'uptime').value)}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {metrics.system.find(m => m.type === 'running_jobs') && (
+                                                <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '4px' }}>
+                                                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>Running Jobs</div>
+                                                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#2c3e50' }}>
+                                                        {metrics.system.find(m => m.type === 'running_jobs').value}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Database Pool Metrics */}
+                                        {metrics.db.length > 0 && (
+                                            <>
+                                                <h3 style={{ marginTop: '20px', marginBottom: '10px', color: '#2c3e50' }}>Database Pool</h3>
+                                                <div className="table-wrapper">
+                                                    <table style={{ marginBottom: '30px' }}>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Component</th>
+                                                            <th>Connections In Use</th>
+                                                            <th>Pool Size</th>
+                                                            <th>Utilization</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {Object.entries(
+                                                            metrics.db.reduce((acc, m) => {
+                                                                if (!acc[m.component]) acc[m.component] = {};
+                                                                acc[m.component][m.type] = m.value;
+                                                                return acc;
+                                                            }, {})
+                                                        ).map(([component, data]) => {
+                                                            const inUse = data.pool_in_use || 0;
+                                                            const poolSize = data.pool_size || 0;
+                                                            const utilization = poolSize > 0 ? ((inUse / poolSize) * 100).toFixed(1) : 0;
+                                                            return (
+                                                                <tr key={component}>
+                                                                    <td>{component}</td>
+                                                                    <td>{inUse}</td>
+                                                                    <td>{poolSize}</td>
+                                                                    <td>
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                            <div style={{ 
+                                                                                width: '100px', 
+                                                                                height: '20px', 
+                                                                                background: '#e0e0e0', 
+                                                                                borderRadius: '4px',
+                                                                                overflow: 'hidden'
+                                                                            }}>
+                                                                                <div style={{
+                                                                                    width: `${utilization}%`,
+                                                                                    height: '100%',
+                                                                                    background: utilization > 80 ? '#e74c3c' : utilization > 60 ? '#f39c12' : '#27ae60',
+                                                                                    transition: 'width 0.3s'
+                                                                                }}></div>
+                                                                            </div>
+                                                                            <span>{utilization}%</span>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                    </table>
+                                                </div>
+                                            </>
+                                        )}
+                                        
+                                        {/* Job Metrics */}
+                                        {metrics.jobs.length > 0 && (
+                                            <>
+                                                <h3 style={{ marginTop: '20px', marginBottom: '10px', color: '#2c3e50' }}>Job Execution Metrics</h3>
+                                                <div className="table-wrapper">
+                                                    <table style={{ marginBottom: '30px' }}>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Job ID</th>
+                                                                <th>Status</th>
+                                                                <th>Total Executions</th>
+                                                                <th>Avg Duration</th>
+                                                                <th>Total Records Loaded</th>
+                                                            </tr>
+                                                        </thead>
+                                                    <tbody>
+                                                        {Object.entries(
+                                                            metrics.jobs.reduce((acc, m) => {
+                                                                const key = `${m.job_id}_${m.status || m.table || 'all'}`;
+                                                                if (!acc[key]) {
+                                                                    acc[key] = {
+                                                                        job_id: m.job_id,
+                                                                        status: m.status,
+                                                                        table: m.table,
+                                                                        executions: 0,
+                                                                        total_duration: 0,
+                                                                        duration_count: 0,
+                                                                        records: 0
+                                                                    };
+                                                                }
+                                                                if (m.type === 'jobs_total') {
+                                                                    acc[key].executions = m.value;
+                                                                } else if (m.type === 'job_duration') {
+                                                                    acc[key].total_duration += m.value;
+                                                                    acc[key].duration_count += 1;
+                                                                } else if (m.type === 'records_loaded') {
+                                                                    acc[key].records = m.value;
+                                                                }
+                                                                return acc;
+                                                            }, {})
+                                                        ).map(([key, data]) => (
+                                                            <tr key={key}>
+                                                                <td>{data.job_id}</td>
+                                                                <td>{data.status ? getStatusBadge(data.status) : (data.table || 'N/A')}</td>
+                                                                <td>{data.executions}</td>
+                                                                <td>{data.duration_count > 0 ? formatDurationMinutes(data.total_duration / data.duration_count) : 'N/A'}</td>
+                                                                <td>{data.records}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    </table>
+                                                </div>
+                                            </>
+                                        )}
+                                        
+                                        {/* API Metrics */}
+                                        {metrics.api.length > 0 && (
+                                            <>
+                                                <h3 style={{ marginTop: '20px', marginBottom: '10px', color: '#2c3e50' }}>API Request Metrics</h3>
+                                                <div className="table-wrapper">
+                                                    <table>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Route</th>
+                                                                <th>Method</th>
+                                                                <th>Status Code</th>
+                                                                <th>Total Requests</th>
+                                                                <th>Avg Duration</th>
+                                                            </tr>
+                                                        </thead>
+                                                    <tbody>
+                                                        {Object.entries(
+                                                            metrics.api.reduce((acc, m) => {
+                                                                const key = `${m.route}_${m.method}_${m.status_code || 'duration'}`;
+                                                                if (!acc[key]) {
+                                                                    acc[key] = {
+                                                                        route: m.route,
+                                                                        method: m.method,
+                                                                        status_code: m.status_code,
+                                                                        requests: 0,
+                                                                        total_duration: 0,
+                                                                        duration_count: 0
+                                                                    };
+                                                                }
+                                                                if (m.type === 'api_requests') {
+                                                                    acc[key].requests = m.value;
+                                                                } else if (m.type === 'api_duration') {
+                                                                    acc[key].total_duration += m.value;
+                                                                    acc[key].duration_count += 1;
+                                                                }
+                                                                return acc;
+                                                            }, {})
+                                                        ).map(([key, data]) => (
+                                                            <tr key={key}>
+                                                                <td>{data.route}</td>
+                                                                <td>{data.method}</td>
+                                                                <td>
+                                                                    {data.status_code ? (
+                                                                        <span style={{
+                                                                            padding: '2px 6px',
+                                                                            borderRadius: '3px',
+                                                                            background: data.status_code >= 500 ? '#f8d7da' : 
+                                                                                       data.status_code >= 400 ? '#fff3cd' : '#d4edda',
+                                                                            color: data.status_code >= 500 ? '#721c24' : 
+                                                                                  data.status_code >= 400 ? '#856404' : '#155724',
+                                                                            fontSize: '11px'
+                                                                        }}>
+                                                                            {data.status_code}
+                                                                        </span>
+                                                                    ) : 'N/A'}
+                                                                </td>
+                                                                <td>{data.requests}</td>
+                                                                <td>{data.duration_count > 0 ? formatDurationMinutes(data.total_duration / data.duration_count) : 'N/A'}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    </table>
+                                                </div>
+                                            </>
+                                        )}
+                                        
+                                        {metrics.jobs.length === 0 && metrics.api.length === 0 && metrics.db.length === 0 && (
+                                            <div className="alert alert-info">
+                                                No metrics data available yet. Metrics will appear after jobs are executed.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {showCronEditor && (
+                        <div className="modal-overlay" onClick={closeCronEditor}>
+                            <div className="modal" onClick={(e) => e.stopPropagation()}>
+                                <div className="modal-header">
+                                    <h3>Schedule Editor</h3>
+                                    <button className="modal-close" onClick={closeCronEditor}>×</button>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Time</label>
+                                    <div className="form-row">
+                                        <div>
+                                            <label style={{ fontSize: '12px', marginBottom: '5px' }}>Hour (0-23)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="23"
+                                                value={cronSettings.hour}
+                                                onChange={(e) => setCronSettings({...cronSettings, hour: e.target.value})}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '12px', marginBottom: '5px' }}>Minute (0-59)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="59"
+                                                value={cronSettings.minute}
+                                                onChange={(e) => setCronSettings({...cronSettings, minute: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Recurrence</label>
+                                    <select
+                                        value={cronSettings.recurrence}
+                                        onChange={(e) => {
+                                            const newRecurrence = e.target.value;
+                                            setCronSettings({
+                                                ...cronSettings,
+                                                recurrence: newRecurrence,
+                                                daysOfWeek: newRecurrence === 'weekly' ? cronSettings.daysOfWeek : [],
+                                                dayOfMonth: newRecurrence === 'monthly' ? cronSettings.dayOfMonth : '1'
+                                            });
+                                        }}
+                                    >
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly (Day of Month)</option>
+                                        <option value="monthly-week">Monthly (Week of Month)</option>
+                                    </select>
+                                </div>
+                                
+                                {cronSettings.recurrence === 'weekly' && (
+                                    <div className="form-group">
+                                        <label>Days of Week</label>
+                                        <div className="checkbox-list">
+                                            {[
+                                                { value: 0, label: 'Sunday' },
+                                                { value: 1, label: 'Monday' },
+                                                { value: 2, label: 'Tuesday' },
+                                                { value: 3, label: 'Wednesday' },
+                                                { value: 4, label: 'Thursday' },
+                                                { value: 5, label: 'Friday' },
+                                                { value: 6, label: 'Saturday' }
+                                            ].map(day => (
+                                                <div key={day.value} className="checkbox-item">
+                                                    <input
+                                                        type="checkbox"
+                                                        id={`day-${day.value}`}
+                                                        checked={cronSettings.daysOfWeek.includes(day.value)}
+                                                        onChange={(e) => {
+                                                            const days = [...cronSettings.daysOfWeek];
+                                                            if (e.target.checked) {
+                                                                days.push(day.value);
+                                                            } else {
+                                                                const index = days.indexOf(day.value);
+                                                                if (index > -1) days.splice(index, 1);
+                                                            }
+                                                            setCronSettings({...cronSettings, daysOfWeek: days.sort()});
+                                                        }}
+                                                    />
+                                                    <label htmlFor={`day-${day.value}`} style={{ margin: 0, cursor: 'pointer' }}>
+                                                        {day.label}
+                                                    </label>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {cronSettings.recurrence === 'monthly' && (
+                                    <div className="form-group">
+                                        <label>Day of Month (1-31)</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="31"
+                                            value={cronSettings.dayOfMonth}
+                                            onChange={(e) => setCronSettings({...cronSettings, dayOfMonth: e.target.value})}
+                                        />
+                                    </div>
+                                )}
+                                
+                                {cronSettings.recurrence === 'monthly-week' && (
+                                    <>
+                                        <div className="form-group">
+                                            <label>Week of Month</label>
+                                            <select
+                                                value={cronSettings.weekOfMonth}
+                                                onChange={(e) => setCronSettings({...cronSettings, weekOfMonth: e.target.value})}
+                                            >
+                                                <option value="1">First</option>
+                                                <option value="2">Second</option>
+                                                <option value="3">Third</option>
+                                                <option value="4">Fourth</option>
+                                                <option value="5">Last</option>
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Day of Week</label>
+                                            <select
+                                                value={cronSettings.daysOfWeek[0] || '1'}
+                                                onChange={(e) => setCronSettings({...cronSettings, daysOfWeek: [parseInt(e.target.value)]})}
+                                            >
+                                                <option value="0">Sunday</option>
+                                                <option value="1">Monday</option>
+                                                <option value="2">Tuesday</option>
+                                                <option value="3">Wednesday</option>
+                                                <option value="4">Thursday</option>
+                                                <option value="5">Friday</option>
+                                                <option value="6">Saturday</option>
+                                            </select>
+                                        </div>
+                                        <div className="alert alert-info" style={{ fontSize: '12px', marginTop: '10px' }}>
+                                            Note: Monthly-week schedules use a simplified cron expression. For precise "first Monday" type schedules, you may need to edit the cron expression manually.
+                                        </div>
+                                    </>
+                                )}
+                                
+                                <div className="cron-preview">
+                                    <div className="cron-preview-label">Cron Expression:</div>
+                                    <code>{settingsToCron(cronSettings)}</code>
+                                </div>
+                                
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
+                                    <button
+                                        className="btn btn-secondary"
+                                        onClick={closeCronEditor}
+                                        disabled={loading}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={saveCronFromEditor}
+                                        disabled={loading}
+                                    >
+                                        Save Schedule
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+        
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+
