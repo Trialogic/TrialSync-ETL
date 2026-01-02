@@ -705,11 +705,21 @@ class JobExecutor:
                     timestamp_field=timestamp_field_name,
                 )
 
-        all_items = []
+        # Get batch size from DataLoader (already configured)
+        batch_size = self.data_loader.batch_size
+
+        # Accumulate records in batches and load incrementally
+        current_batch = []
+        total_loaded = 0
+        total_inserted = 0
+        total_updated = 0
+        page_count = 0
+
         try:
             for page in client.get_odata(
                 endpoint, params=odata_params, page_mode="iterator", dry_run=dry_run
             ):
+                page_count += 1
                 # Validate page.items is a list
                 if not isinstance(page.items, list):
                     logger.warning(
@@ -718,67 +728,136 @@ class JobExecutor:
                         items_type=type(page.items).__name__,
                     )
                     continue
-                all_items.extend(page.items)
+
+                # Add items to current batch
+                for item in page.items:
+                    if not isinstance(item, dict):
+                        logger.warning(
+                            "invalid_item_type",
+                            endpoint=endpoint,
+                            item_type=type(item).__name__,
+                            item_repr=str(item)[:100],
+                        )
+                        continue
+                    current_batch.append({"data": item})
+
+                    # When batch is full, load it to database
+                    if len(current_batch) >= batch_size:
+                        if not dry_run:
+                            batch_result = self.data_loader.load_to_staging(
+                                table_name=target_table,
+                                records=current_batch,
+                                etl_job_id=etl_job_id,
+                                etl_run_id=etl_run_id,
+                                instance_id=instance_id,
+                                dry_run=dry_run,
+                            )
+                            total_inserted += batch_result.rows_inserted
+                            total_updated += batch_result.rows_updated
+                            total_loaded += batch_result.rows_inserted + batch_result.rows_updated
+
+                            logger.info(
+                                "batch_loaded",
+                                endpoint=endpoint,
+                                target_table=target_table,
+                                batch_size=len(current_batch),
+                                rows_inserted=batch_result.rows_inserted,
+                                rows_updated=batch_result.rows_updated,
+                                total_loaded=total_loaded,
+                                page_count=page_count,
+                                etl_job_id=etl_job_id,
+                                etl_run_id=etl_run_id,
+                            )
+                        else:
+                            total_loaded += len(current_batch)
+
+                        # Clear batch for next iteration
+                        current_batch = []
+
         except Exception as e:
             logger.error(
                 "error_fetching_data",
                 endpoint=endpoint,
                 error=str(e),
                 error_type=type(e).__name__,
+                total_loaded=total_loaded,
             )
+            # Try to load any remaining records in current_batch before raising
+            if current_batch and not dry_run:
+                try:
+                    batch_result = self.data_loader.load_to_staging(
+                        table_name=target_table,
+                        records=current_batch,
+                        etl_job_id=etl_job_id,
+                        etl_run_id=etl_run_id,
+                        instance_id=instance_id,
+                        dry_run=dry_run,
+                    )
+                    total_inserted += batch_result.rows_inserted
+                    total_updated += batch_result.rows_updated
+                    total_loaded += batch_result.rows_inserted + batch_result.rows_updated
+                    logger.info(
+                        "final_batch_loaded_on_error",
+                        endpoint=endpoint,
+                        batch_size=len(current_batch),
+                        total_loaded=total_loaded,
+                    )
+                except Exception as load_error:
+                    logger.error(
+                        "error_loading_final_batch",
+                        endpoint=endpoint,
+                        error=str(load_error),
+                        batch_size=len(current_batch),
+                    )
             raise
 
+        # Load any remaining records in the final batch
+        if current_batch:
+            if not dry_run:
+                batch_result = self.data_loader.load_to_staging(
+                    table_name=target_table,
+                    records=current_batch,
+                    etl_job_id=etl_job_id,
+                    etl_run_id=etl_run_id,
+                    instance_id=instance_id,
+                    dry_run=dry_run,
+                )
+                total_inserted += batch_result.rows_inserted
+                total_updated += batch_result.rows_updated
+                total_loaded += batch_result.rows_inserted + batch_result.rows_updated
+
+                logger.info(
+                    "final_batch_loaded",
+                    endpoint=endpoint,
+                    target_table=target_table,
+                    batch_size=len(current_batch),
+                    rows_inserted=batch_result.rows_inserted,
+                    rows_updated=batch_result.rows_updated,
+                    total_loaded=total_loaded,
+                    etl_job_id=etl_job_id,
+                    etl_run_id=etl_run_id,
+                )
+            else:
+                total_loaded += len(current_batch)
+
         logger.info(
-            "api_data_fetched",
+            "api_data_fetched_and_loaded",
             endpoint=endpoint,
-            items_count=len(all_items),
+            total_items=total_loaded,
+            total_inserted=total_inserted,
+            total_updated=total_updated,
+            pages_processed=page_count,
             etl_job_id=etl_job_id,
             etl_run_id=etl_run_id,
         )
 
         if dry_run:
             logger.info(
-                "dry_run_skipping_load",
+                "dry_run_complete",
                 endpoint=endpoint,
-                items_count=len(all_items),
+                items_count=total_loaded,
                 target_table=target_table,
             )
-            return len(all_items)
 
-        # Prepare records for loading - validate items are dicts
-        records = []
-        for item in all_items:
-            if not isinstance(item, dict):
-                logger.warning(
-                    "invalid_item_type",
-                    endpoint=endpoint,
-                    item_type=type(item).__name__,
-                    item_repr=str(item)[:100],
-                )
-                continue
-            records.append({"data": item})
-
-        # Load to staging
-        # Pass source_instance_id as instance_id to use as source_id
-        result = self.data_loader.load_to_staging(
-            table_name=target_table,
-            records=records,
-            etl_job_id=etl_job_id,
-            etl_run_id=etl_run_id,
-            instance_id=job_config.source_instance_id,
-            dry_run=dry_run,
-        )
-
-        logger.info(
-            "data_loaded",
-            endpoint=endpoint,
-            target_table=target_table,
-            rows_inserted=result.rows_inserted,
-            rows_updated=result.rows_updated,
-            batches_total=result.batches_total,
-            etl_job_id=etl_job_id,
-            etl_run_id=etl_run_id,
-        )
-
-        return result.rows_inserted + result.rows_updated
+        return total_loaded
 
