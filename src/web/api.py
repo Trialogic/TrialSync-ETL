@@ -3,6 +3,7 @@
 Provides REST API endpoints for all CLI operations.
 """
 
+import time
 from typing import Optional
 
 from pathlib import Path
@@ -433,7 +434,10 @@ async def get_all_runs(
 
 @app.post("/runs/{run_id}/retry", response_model=RunJobResponse)
 async def retry_run(run_id: int, request: RetryJobRequest):
-    """Retry a failed job run.
+    """Retry a failed or timed-out job run.
+
+    If the run has a checkpoint, it will resume from where it left off.
+    Otherwise, it will start a new run.
 
     Args:
         run_id: Run ID to retry.
@@ -451,7 +455,7 @@ async def retry_run(run_id: int, request: RetryJobRequest):
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT job_id, run_context
+                SELECT job_id, run_status, run_context
                 FROM dw_etl_runs
                 WHERE id = %s
                 """,
@@ -462,17 +466,31 @@ async def retry_run(run_id: int, request: RetryJobRequest):
             if not run:
                 raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
-            job_id, run_context = run
+            job_id, run_status, run_context = run
             import json
 
-            parameters_dict = json.loads(run_context) if run_context else None
+            # Check if there's a checkpoint
+            has_checkpoint = False
+            parameters_dict = None
+            if run_context:
+                try:
+                    context_dict = json.loads(run_context)
+                    if "checkpoint" in context_dict:
+                        has_checkpoint = True
+                    # Extract parameters (not checkpoint)
+                    if "checkpoint" not in context_dict:
+                        parameters_dict = context_dict
+                except (json.JSONDecodeError, TypeError):
+                    # If not valid JSON, treat as parameters
+                    parameters_dict = json.loads(run_context) if run_context else None
 
-        # Execute job
+        # Execute job with resume if checkpoint exists
         executor = JobExecutor()
         result = executor.execute_job(
             job_id=job_id,
             dry_run=request.dry_run,
             parameters=parameters_dict,
+            resume_from_checkpoint=has_checkpoint,
         )
 
         return RunJobResponse(
@@ -742,5 +760,576 @@ async def get_metrics():
         collector = get_metrics_collector()
         metrics_bytes, content_type = collector.get_metrics()
         return Response(content=metrics_bytes, media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Transformation Procedures API
+# ============================================================================
+
+class TransformationProcedure(BaseModel):
+    """Model for transformation procedure."""
+
+    name: str
+    description: Optional[str] = None
+    last_run_at: Optional[str] = None
+    last_run_status: Optional[str] = None
+    schedule_cron: Optional[str] = None
+    is_scheduled: bool = False
+    next_run_time: Optional[str] = None
+
+
+class ExecuteTransformationRequest(BaseModel):
+    """Request model for executing a transformation procedure."""
+
+    procedure_name: str
+
+
+class ExecuteTransformationResponse(BaseModel):
+    """Response model for executing a transformation procedure."""
+
+    run_id: int
+    procedure_name: str
+    status: str
+    rows_affected: Optional[int] = None
+    duration_seconds: Optional[float] = None
+    error_message: Optional[str] = None
+    execution_log: Optional[str] = None
+
+
+class TransformationRunHistory(BaseModel):
+    """Model for transformation run history."""
+
+    id: int
+    procedure_name: str
+    run_status: str
+    started_at: str
+    completed_at: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    rows_affected: Optional[int] = None
+    error_message: Optional[str] = None
+
+
+class TransformationScheduleRequest(BaseModel):
+    """Request model for updating transformation schedule."""
+
+    schedule_cron: Optional[str] = None
+    is_active: bool = True
+
+
+@app.get("/transformations", response_model=list[TransformationProcedure])
+async def list_transformations():
+    """List all transformation procedures.
+
+    Returns:
+        List of TransformationProcedure.
+    """
+    try:
+        orchestrator = ETLOrchestrator()
+        pool = orchestrator.pool
+
+        # Get all stored procedures that match transformation pattern
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First check if transformation tables exist
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'dw_transformation_schedules'
+                )
+            """)
+            tables_exist = cursor.fetchone()[0]
+            
+            # Query procedures - simplified query
+            cursor.execute(
+                """
+                SELECT 
+                    r.routine_name,
+                    (SELECT obj_description(oid, 'pg_proc') 
+                     FROM pg_proc 
+                     WHERE proname = r.routine_name 
+                     AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+                     LIMIT 1) as description
+                FROM information_schema.routines r
+                WHERE r.routine_schema = 'public'
+                  AND r.routine_type = 'PROCEDURE'
+                  AND (
+                      r.routine_name LIKE 'load_dw_dim%'
+                      OR r.routine_name LIKE 'load_dw_fact%'
+                      OR r.routine_name LIKE 'load_all_new%'
+                  )
+                ORDER BY r.routine_name
+                """
+            )
+            procedures = cursor.fetchall()
+
+            # Get schedule and last run info
+            result = []
+            for proc_name, description in procedures:
+                schedule_cron = None
+                is_scheduled = False
+                last_run_at = None
+                last_run_status = None
+                next_run_time = None
+                
+                # Get schedule (only if table exists)
+                if tables_exist:
+                    try:
+                        cursor.execute(
+                            """
+                            SELECT schedule_cron, is_active, last_run_at, last_run_status, next_run_time
+                            FROM dw_transformation_schedules
+                            WHERE procedure_name = %s
+                            """,
+                            (proc_name,),
+                        )
+                        schedule_row = cursor.fetchone()
+
+                        if schedule_row:
+                            schedule_cron = schedule_row[0]
+                            is_scheduled = bool(schedule_row[1]) and bool(schedule_cron)
+                            last_run_at = str(schedule_row[2]) if schedule_row[2] else None
+                            last_run_status = schedule_row[3]
+                            next_run_time = str(schedule_row[4]) if schedule_row[4] else None
+                    except Exception as e:
+                        # Table might not exist or have wrong schema, continue without schedule info
+                        # Log error but don't fail the entire request
+                        import structlog
+                        logger = structlog.get_logger(__name__)
+                        logger.warning("error_loading_schedule", procedure=proc_name, error=str(e))
+
+                # If no schedule record exists, check last run from history (only if table exists)
+                if not last_run_at and tables_exist:
+                    try:
+                        cursor.execute(
+                            """
+                            SELECT started_at, run_status
+                            FROM dw_transformation_runs
+                            WHERE procedure_name = %s
+                            ORDER BY started_at DESC
+                            LIMIT 1
+                            """,
+                            (proc_name,),
+                        )
+                        last_run = cursor.fetchone()
+                        if last_run:
+                            last_run_at = str(last_run[0])
+                            last_run_status = last_run[1]
+                    except Exception:
+                        # Table might not exist, continue without history
+                        pass
+
+                result.append(
+                    TransformationProcedure(
+                        name=proc_name,
+                        description=description,
+                        last_run_at=last_run_at,
+                        last_run_status=last_run_status,
+                        schedule_cron=schedule_cron,
+                        is_scheduled=is_scheduled,
+                        next_run_time=next_run_time,
+                    )
+                )
+
+            return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error loading transformations: {str(e)}\n\nDetails: {error_details}"
+        )
+
+
+@app.post("/transformations/{procedure_name}/execute", response_model=ExecuteTransformationResponse)
+async def execute_transformation(procedure_name: str):
+    """Execute a transformation procedure manually.
+
+    Args:
+        procedure_name: Name of the procedure to execute.
+
+    Returns:
+        ExecuteTransformationResponse with execution results.
+    """
+    try:
+        orchestrator = ETLOrchestrator()
+        pool = orchestrator.pool
+
+        # Validate procedure exists
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT routine_name
+                FROM information_schema.routines
+                WHERE routine_schema = 'public'
+                  AND routine_type = 'PROCEDURE'
+                  AND routine_name = %s
+                """,
+                (procedure_name,),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(
+                    status_code=404, detail=f"Transformation procedure '{procedure_name}' not found"
+                )
+
+            # Create run record
+            cursor.execute(
+                """
+                INSERT INTO dw_transformation_runs (procedure_name, run_status, started_at)
+                VALUES (%s, 'running', NOW())
+                RETURNING id
+                """,
+                (procedure_name,),
+            )
+            run_id = cursor.fetchone()[0]
+            conn.commit()
+
+        # Execute procedure and capture output
+        import io
+        import sys
+        from contextlib import redirect_stdout
+
+        execution_log = io.StringIO()
+        rows_affected = None
+        error_message = None
+        status = "success"
+        duration_seconds = None
+        start_time = time.time()
+
+        try:
+            with pool.get_connection() as conn:
+                # Set client_min_messages to capture NOTICE messages
+                cursor = conn.cursor()
+                cursor.execute("SET client_min_messages TO NOTICE")
+
+                # Capture procedure output
+                # Note: PostgreSQL RAISE NOTICE messages go to stderr, not stdout
+                # We'll need to use a different approach - log to a table or use plpgsql_check
+                cursor.execute(f"CALL {procedure_name}()")
+                conn.commit()
+
+                # Try to get affected rows if available
+                # Note: Procedures don't return row counts directly, we'd need to query the target tables
+                # For now, we'll leave it as None
+
+                duration_seconds = time.time() - start_time
+                status = "success"
+
+        except Exception as e:
+            duration_seconds = time.time() - start_time
+            status = "failed"
+            error_message = str(e)
+            execution_log.write(f"Error: {error_message}")
+
+        # Update run record
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE dw_transformation_runs
+                SET run_status = %s,
+                    completed_at = NOW(),
+                    duration_seconds = %s,
+                    rows_affected = %s,
+                    error_message = %s,
+                    execution_log = %s
+                WHERE id = %s
+                """,
+                (
+                    status,
+                    duration_seconds,
+                    rows_affected,
+                    error_message,
+                    execution_log.getvalue() or None,
+                    run_id,
+                ),
+            )
+
+            # Update schedule last_run info
+            cursor.execute(
+                """
+                UPDATE dw_transformation_schedules
+                SET last_run_at = NOW(),
+                    last_run_status = %s,
+                    updated_at = NOW()
+                WHERE procedure_name = %s
+                """,
+                (status, procedure_name),
+            )
+            conn.commit()
+
+        return ExecuteTransformationResponse(
+            run_id=run_id,
+            procedure_name=procedure_name,
+            status=status,
+            rows_affected=rows_affected,
+            duration_seconds=duration_seconds,
+            error_message=error_message,
+            execution_log=execution_log.getvalue() or None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/transformations/{procedure_name}/schedule", response_model=TransformationProcedure)
+async def get_transformation_schedule(procedure_name: str):
+    """Get schedule for a transformation procedure.
+
+    Args:
+        procedure_name: Name of the procedure.
+
+    Returns:
+        TransformationProcedure with schedule information.
+    """
+    try:
+        orchestrator = ETLOrchestrator()
+        pool = orchestrator.pool
+
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get or create schedule record
+            cursor.execute(
+                """
+                SELECT schedule_cron, is_active, last_run_at, last_run_status, next_run_time
+                FROM dw_transformation_schedules
+                WHERE procedure_name = %s
+                """,
+                (procedure_name,),
+            )
+            schedule_row = cursor.fetchone()
+
+            if schedule_row:
+                schedule_cron, is_active, last_run_at, last_run_status, next_run_time = schedule_row
+                is_scheduled = bool(is_active) and bool(schedule_cron)
+            else:
+                # Create default record
+                cursor.execute(
+                    """
+                    INSERT INTO dw_transformation_schedules (procedure_name, is_active)
+                    VALUES (%s, FALSE)
+                    RETURNING schedule_cron, is_active, last_run_at, last_run_status, next_run_time
+                    """,
+                    (procedure_name,),
+                )
+                conn.commit()
+                schedule_row = cursor.fetchone()
+                schedule_cron, is_active, last_run_at, last_run_status, next_run_time = schedule_row
+                is_scheduled = False
+
+            # Get description
+            cursor.execute(
+                """
+                SELECT obj_description(p.oid, 'pg_proc')
+                FROM pg_proc p
+                WHERE p.proname = %s
+                LIMIT 1
+                """,
+                (procedure_name,),
+            )
+            desc_row = cursor.fetchone()
+            description = desc_row[0] if desc_row and desc_row[0] else None
+
+            return TransformationProcedure(
+                name=procedure_name,
+                description=description,
+                last_run_at=str(last_run_at) if last_run_at else None,
+                last_run_status=last_run_status,
+                schedule_cron=schedule_cron,
+                is_scheduled=is_scheduled,
+                next_run_time=str(next_run_time) if next_run_time else None,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/transformations/{procedure_name}/schedule", response_model=TransformationProcedure)
+async def update_transformation_schedule(
+    procedure_name: str, request: TransformationScheduleRequest
+):
+    """Update schedule for a transformation procedure.
+
+    Args:
+        procedure_name: Name of the procedure.
+        request: Schedule request with cron expression.
+
+    Returns:
+        TransformationProcedure with updated schedule information.
+    """
+    try:
+        # Validate cron expression if provided
+        schedule_cron = request.schedule_cron.strip() if request.schedule_cron else None
+        if schedule_cron:
+            try:
+                from croniter import croniter
+                from datetime import datetime
+                import pytz
+
+                # Validate cron expression
+                cron = croniter(schedule_cron, datetime.now(pytz.UTC))
+                next_run_time = cron.get_next(datetime)
+            except ImportError:
+                # croniter not installed, skip validation
+                next_run_time = None
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid cron expression: {str(e)}"
+                )
+        else:
+            next_run_time = None
+
+        orchestrator = ETLOrchestrator()
+        pool = orchestrator.pool
+
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Check if procedure exists
+            cursor.execute(
+                """
+                SELECT routine_name
+                FROM information_schema.routines
+                WHERE routine_schema = 'public'
+                  AND routine_type = 'PROCEDURE'
+                  AND routine_name = %s
+                """,
+                (procedure_name,),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(
+                    status_code=404, detail=f"Transformation procedure '{procedure_name}' not found"
+                )
+
+            # Upsert schedule
+            cursor.execute(
+                """
+                INSERT INTO dw_transformation_schedules (procedure_name, schedule_cron, is_active, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (procedure_name) 
+                DO UPDATE SET 
+                    schedule_cron = EXCLUDED.schedule_cron,
+                    is_active = EXCLUDED.is_active,
+                    next_run_time = %s,
+                    updated_at = NOW()
+                RETURNING schedule_cron, is_active, last_run_at, last_run_status, next_run_time
+                """,
+                (procedure_name, schedule_cron, request.is_active, next_run_time),
+            )
+            schedule_row = cursor.fetchone()
+            conn.commit()
+
+            schedule_cron, is_active, last_run_at, last_run_status, next_run_time = schedule_row
+            is_scheduled = bool(is_active) and bool(schedule_cron)
+
+            # Get description
+            cursor.execute(
+                """
+                SELECT obj_description(p.oid, 'pg_proc')
+                FROM pg_proc p
+                WHERE p.proname = %s
+                LIMIT 1
+                """,
+                (procedure_name,),
+            )
+            desc_row = cursor.fetchone()
+            description = desc_row[0] if desc_row and desc_row[0] else None
+
+            return TransformationProcedure(
+                name=procedure_name,
+                description=description,
+                last_run_at=str(last_run_at) if last_run_at else None,
+                last_run_status=last_run_status,
+                schedule_cron=schedule_cron,
+                is_scheduled=is_scheduled,
+                next_run_time=str(next_run_time) if next_run_time else None,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/transformations/{procedure_name}/schedule")
+async def delete_transformation_schedule(procedure_name: str):
+    """Remove schedule for a transformation procedure.
+
+    Args:
+        procedure_name: Name of the procedure.
+
+    Returns:
+        Success message.
+    """
+    try:
+        orchestrator = ETLOrchestrator()
+        pool = orchestrator.pool
+
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE dw_transformation_schedules
+                SET schedule_cron = NULL, is_active = FALSE, updated_at = NOW()
+                WHERE procedure_name = %s
+                """,
+                (procedure_name,),
+            )
+            conn.commit()
+
+            return {"message": f"Schedule removed for transformation procedure '{procedure_name}'"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/transformations/{procedure_name}/history", response_model=list[TransformationRunHistory])
+async def get_transformation_history(procedure_name: str, limit: int = 20):
+    """Get execution history for a transformation procedure.
+
+    Args:
+        procedure_name: Name of the procedure.
+        limit: Maximum number of runs to return.
+
+    Returns:
+        List of TransformationRunHistory.
+    """
+    try:
+        orchestrator = ETLOrchestrator()
+        pool = orchestrator.pool
+
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, procedure_name, run_status, started_at, completed_at,
+                       duration_seconds, rows_affected, error_message
+                FROM dw_transformation_runs
+                WHERE procedure_name = %s
+                ORDER BY started_at DESC
+                LIMIT %s
+                """,
+                (procedure_name, limit),
+            )
+            runs = cursor.fetchall()
+
+            return [
+                TransformationRunHistory(
+                    id=run[0],
+                    procedure_name=run[1],
+                    run_status=run[2],
+                    started_at=str(run[3]),
+                    completed_at=str(run[4]) if run[4] else None,
+                    duration_seconds=float(run[5]) if run[5] else None,
+                    rows_affected=run[6],
+                    error_message=run[7],
+                )
+                for run in runs
+            ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

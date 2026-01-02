@@ -447,6 +447,9 @@
             const [jobs, setJobs] = useState([]);
             const [runs, setRuns] = useState([]);
             const [schedules, setSchedules] = useState([]);
+            const [transformations, setTransformations] = useState([]);
+            const [transformationHistory, setTransformationHistory] = useState({});
+            const [selectedTransformation, setSelectedTransformation] = useState(null);
             const [loading, setLoading] = useState(false);
             const [message, setMessage] = useState(null);
             const [selectedJob, setSelectedJob] = useState(null);
@@ -457,6 +460,8 @@
             const [expandedGroups, setExpandedGroups] = useState({});
             const [showCronEditor, setShowCronEditor] = useState(false);
             const [cronEditorJobId, setCronEditorJobId] = useState(null);
+            const [showTransformationCronEditor, setShowTransformationCronEditor] = useState(false);
+            const [cronEditorProcedureName, setCronEditorProcedureName] = useState(null);
             const [cronSettings, setCronSettings] = useState({
                 hour: '2',
                 minute: '0',
@@ -474,6 +479,8 @@
                     loadRuns();
                 } else if (activeTab === 'schedules') {
                     loadSchedules();
+                } else if (activeTab === 'transformations') {
+                    loadTransformations();
                 } else if (activeTab === 'metrics') {
                     loadMetrics();
                     // Auto-refresh metrics every 5 seconds
@@ -545,6 +552,103 @@
                     setSchedules(schedulesData);
                 } catch (error) {
                     showMessage('Error loading schedules: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const loadTransformations = async () => {
+                setLoading(true);
+                try {
+                    const response = await axios.get(`${API_BASE}/transformations`);
+                    setTransformations(response.data);
+                } catch (error) {
+                    showMessage('Error loading transformations: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const executeTransformation = async (procedureName) => {
+                if (!confirm(`Execute transformation procedure "${procedureName}"?`)) {
+                    return;
+                }
+                
+                setLoading(true);
+                try {
+                    const response = await axios.post(`${API_BASE}/transformations/${procedureName}/execute`);
+                    showMessage(
+                        `Transformation "${procedureName}" ${response.data.status === 'success' ? 'completed successfully' : 'failed'}`,
+                        response.data.status === 'success' ? 'success' : 'error'
+                    );
+                    loadTransformations();
+                } catch (error) {
+                    showMessage('Error executing transformation: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const loadTransformationHistory = async (procedureName) => {
+                try {
+                    const response = await axios.get(`${API_BASE}/transformations/${procedureName}/history?limit=20`);
+                    setTransformationHistory(prev => ({
+                        ...prev,
+                        [procedureName]: response.data
+                    }));
+                } catch (error) {
+                    showMessage('Error loading transformation history: ' + error.message, 'error');
+                }
+            };
+            
+            const openTransformationCronEditor = (transformation) => {
+                setCronEditorProcedureName(transformation.name);
+                if (transformation.schedule_cron) {
+                    // Parse existing cron if available
+                    const parts = transformation.schedule_cron.split(' ');
+                    if (parts.length >= 5) {
+                        setCronSettings({
+                            minute: parts[0] || '0',
+                            hour: parts[1] || '2',
+                            dayOfMonth: parts[2] || '*',
+                            month: parts[3] || '*',
+                            dayOfWeek: parts[4] || '*',
+                            recurrence: 'daily'
+                        });
+                    }
+                }
+                setShowTransformationCronEditor(true);
+            };
+            
+            const saveTransformationSchedule = async (procedureName, cronExpression) => {
+                setLoading(true);
+                try {
+                    await axios.put(`${API_BASE}/transformations/${procedureName}/schedule`, {
+                        schedule_cron: cronExpression,
+                        is_active: true
+                    });
+                    showMessage('Schedule saved successfully', 'success');
+                    setShowTransformationCronEditor(false);
+                    loadTransformations();
+                } catch (error) {
+                    showMessage('Error saving schedule: ' + error.message, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const deleteTransformationSchedule = async (procedureName) => {
+                if (!confirm(`Remove schedule for "${procedureName}"?`)) {
+                    return;
+                }
+                
+                setLoading(true);
+                try {
+                    await axios.delete(`${API_BASE}/transformations/${procedureName}/schedule`);
+                    showMessage('Schedule removed successfully', 'success');
+                    loadTransformations();
+                } catch (error) {
+                    showMessage('Error removing schedule: ' + error.message, 'error');
                 } finally {
                     setLoading(false);
                 }
@@ -1025,6 +1129,12 @@
                             Execution History
                         </button>
                         <button
+                            className={`tab ${activeTab === 'transformations' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('transformations')}
+                        >
+                            Transformations
+                        </button>
+                        <button
                             className={`tab ${activeTab === 'metrics' ? 'active' : ''}`}
                             onClick={() => setActiveTab('metrics')}
                         >
@@ -1282,6 +1392,284 @@
                                         ))}
                                     </tbody>
                                     </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    {activeTab === 'transformations' && (
+                        <div>
+                            <div className="card">
+                                <div style={{ marginBottom: '20px' }}>
+                                    <h2>Transformation Procedures</h2>
+                                    <p style={{ fontSize: '12px', color: '#666', margin: '5px 0 0 0' }}>
+                                        Timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                                    </p>
+                                </div>
+                                <p style={{ marginBottom: '20px', color: '#666' }}>
+                                    Manage transformation procedures that move data from Bronze (staging) to Silver layer.
+                                    These procedures implement Type 2 Slowly Changing Dimensions (SCD Type 2) for historical tracking.
+                                </p>
+                                
+                                {loading ? (
+                                    <div className="loading">Loading...</div>
+                                ) : (
+                                    <div className="table-wrapper">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Procedure Name</th>
+                                                    <th>Description</th>
+                                                    <th>Last Run</th>
+                                                    <th>Last Status</th>
+                                                    <th>Schedule</th>
+                                                    <th>Next Run</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {transformations.map(proc => (
+                                                    <tr key={proc.name}>
+                                                        <td><code>{proc.name}</code></td>
+                                                        <td style={{ fontSize: '12px', color: '#666' }}>
+                                                            {proc.description || 'No description'}
+                                                        </td>
+                                                        <td style={{ fontSize: '12px' }}>
+                                                            {proc.last_run_at ? formatDateTimeWithTimezone(proc.last_run_at) : 'Never'}
+                                                        </td>
+                                                        <td>
+                                                            {proc.last_run_status ? getStatusBadge(proc.last_run_status) : 'N/A'}
+                                                        </td>
+                                                        <td>
+                                                            {proc.schedule_cron ? (
+                                                                <code style={{ fontSize: '11px' }}>{proc.schedule_cron}</code>
+                                                            ) : (
+                                                                <span style={{ color: '#999' }}>Not scheduled</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ fontSize: '12px' }}>
+                                                            {proc.next_run_time ? formatDateTimeWithTimezone(proc.next_run_time) : 'N/A'}
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                                                <button
+                                                                    className="btn btn-primary"
+                                                                    onClick={() => executeTransformation(proc.name)}
+                                                                    disabled={loading}
+                                                                    style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                                    title="Execute manually"
+                                                                >
+                                                                    Run
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-secondary"
+                                                                    onClick={() => {
+                                                                        setSelectedTransformation(proc.name);
+                                                                        loadTransformationHistory(proc.name);
+                                                                    }}
+                                                                    disabled={loading}
+                                                                    style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                                    title="View execution history"
+                                                                >
+                                                                    History
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-primary"
+                                                                    onClick={() => openTransformationCronEditor(proc)}
+                                                                    disabled={loading}
+                                                                    style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                                    title={proc.is_scheduled ? 'Edit schedule' : 'Add schedule'}
+                                                                >
+                                                                    {proc.is_scheduled ? 'Edit' : 'Schedule'}
+                                                                </button>
+                                                                {proc.is_scheduled && (
+                                                                    <button
+                                                                        className="btn btn-danger"
+                                                                        onClick={() => deleteTransformationSchedule(proc.name)}
+                                                                        disabled={loading}
+                                                                        style={{ fontSize: '12px', padding: '5px 10px' }}
+                                                                        title="Remove schedule"
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Transformation History Modal/Section */}
+                            {selectedTransformation && transformationHistory[selectedTransformation] && (
+                                <div className="card" style={{ marginTop: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                        <h3>Execution History: {selectedTransformation}</h3>
+                                        <button
+                                            className="btn btn-secondary"
+                                            onClick={() => setSelectedTransformation(null)}
+                                            style={{ fontSize: '12px', padding: '5px 10px' }}
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                    <div className="table-wrapper">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Run ID</th>
+                                                    <th>Status</th>
+                                                    <th>Started</th>
+                                                    <th>Completed</th>
+                                                    <th>Duration</th>
+                                                    <th>Rows Affected</th>
+                                                    <th>Error</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {transformationHistory[selectedTransformation].map(run => (
+                                                    <tr key={run.id}>
+                                                        <td>{run.id}</td>
+                                                        <td>{getStatusBadge(run.run_status)}</td>
+                                                        <td style={{ fontSize: '12px' }}>
+                                                            {formatDateTimeWithTimezone(run.started_at)}
+                                                        </td>
+                                                        <td style={{ fontSize: '12px' }}>
+                                                            {run.completed_at ? formatDateTimeWithTimezone(run.completed_at) : 'N/A'}
+                                                        </td>
+                                                        <td>{formatDurationMinutes(run.duration_seconds)}</td>
+                                                        <td>{run.rows_affected !== null ? run.rows_affected.toLocaleString() : 'N/A'}</td>
+                                                        <td style={{ fontSize: '11px', color: '#d32f2f', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {run.error_message || '-'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Cron Editor Modal for Transformations */}
+                            {showTransformationCronEditor && (
+                                <div className="modal-overlay" onClick={() => setShowTransformationCronEditor(false)}>
+                                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                            <h3>Schedule Transformation: {cronEditorProcedureName}</h3>
+                                            <button
+                                                className="btn btn-secondary"
+                                                onClick={() => setShowTransformationCronEditor(false)}
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                        {/* Reuse the same cron editor UI from schedules tab */}
+                                        <div style={{ marginBottom: '20px' }}>
+                                            <label>Recurrence:</label>
+                                            <select
+                                                value={cronSettings.recurrence}
+                                                onChange={(e) => setCronSettings({...cronSettings, recurrence: e.target.value})}
+                                                style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                                            >
+                                                <option value="daily">Daily</option>
+                                                <option value="weekly">Weekly</option>
+                                                <option value="monthly">Monthly</option>
+                                                <option value="custom">Custom Cron</option>
+                                            </select>
+                                        </div>
+                                        
+                                        {cronSettings.recurrence === 'daily' && (
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label>Time:</label>
+                                                <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="23"
+                                                        value={cronSettings.hour}
+                                                        onChange={(e) => setCronSettings({...cronSettings, hour: e.target.value})}
+                                                        placeholder="Hour"
+                                                        style={{ width: '80px', padding: '8px' }}
+                                                    />
+                                                    <span>:</span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="59"
+                                                        value={cronSettings.minute}
+                                                        onChange={(e) => setCronSettings({...cronSettings, minute: e.target.value})}
+                                                        placeholder="Minute"
+                                                        style={{ width: '80px', padding: '8px' }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        {cronSettings.recurrence === 'weekly' && (
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label>Day of Week:</label>
+                                                <select
+                                                    value={cronSettings.daysOfWeek?.[0] || '0'}
+                                                    onChange={(e) => setCronSettings({...cronSettings, daysOfWeek: [e.target.value]})}
+                                                    style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                                                >
+                                                    <option value="0">Sunday</option>
+                                                    <option value="1">Monday</option>
+                                                    <option value="2">Tuesday</option>
+                                                    <option value="3">Wednesday</option>
+                                                    <option value="4">Thursday</option>
+                                                    <option value="5">Friday</option>
+                                                    <option value="6">Saturday</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                        
+                                        {cronSettings.recurrence === 'custom' && (
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label>Cron Expression:</label>
+                                                <input
+                                                    type="text"
+                                                    value={scheduleCron}
+                                                    onChange={(e) => setScheduleCron(e.target.value)}
+                                                    placeholder="0 2 * * *"
+                                                    style={{ width: '100%', padding: '8px', marginTop: '5px', fontFamily: 'monospace' }}
+                                                />
+                                                <p style={{ fontSize: '11px', color: '#666', marginTop: '5px' }}>
+                                                    Format: minute hour day month day-of-week
+                                                </p>
+                                            </div>
+                                        )}
+                                        
+                                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                                            <button
+                                                className="btn btn-secondary"
+                                                onClick={() => setShowTransformationCronEditor(false)}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                className="btn btn-primary"
+                                                onClick={() => {
+                                                    let cronExpr = '';
+                                                    if (cronSettings.recurrence === 'daily') {
+                                                        cronExpr = `${cronSettings.minute || '0'} ${cronSettings.hour || '2'} * * *`;
+                                                    } else if (cronSettings.recurrence === 'weekly') {
+                                                        cronExpr = `${cronSettings.minute || '0'} ${cronSettings.hour || '2'} * * ${cronSettings.daysOfWeek?.[0] || '0'}`;
+                                                    } else if (cronSettings.recurrence === 'monthly') {
+                                                        cronExpr = `${cronSettings.minute || '0'} ${cronSettings.hour || '2'} ${cronSettings.dayOfMonth || '1'} * *`;
+                                                    } else {
+                                                        cronExpr = scheduleCron;
+                                                    }
+                                                    saveTransformationSchedule(cronEditorProcedureName, cronExpr);
+                                                }}
+                                            >
+                                                Save Schedule
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>

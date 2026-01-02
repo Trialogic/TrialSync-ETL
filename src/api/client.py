@@ -175,7 +175,7 @@ class ClinicalConductorClient:
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         rate_limit_rps: Optional[float] = None,
-        default_top: int = 100,
+        default_top: int = 100,  # CC API: default 50, max 1000. Using 100 for balance.
         max_pages: int = 10000,
         max_records: Optional[int] = None,
         strict_validation: bool = False,
@@ -206,7 +206,27 @@ class ClinicalConductorClient:
         self.max_retries = max_retries_val
         
         self.rate_limit_rps = rate_limit_rps or settings.api.rate_limit_per_second
-        self.default_top = default_top
+        
+        # Validate and set default_top (CC API limit: max 1000, default 50)
+        # Enforce maximum of 1000 records per request
+        if default_top > 1000:
+            logger.warning(
+                "default_top_exceeds_maximum",
+                requested=default_top,
+                maximum=1000,
+                message="CC API maximum is 1000 records per request, capping to 1000",
+            )
+            self.default_top = 1000
+        elif default_top < 1:
+            logger.warning(
+                "default_top_too_low",
+                requested=default_top,
+                minimum=1,
+                message="default_top must be at least 1, setting to 1",
+            )
+            self.default_top = 1
+        else:
+            self.default_top = default_top
         
         # Validate and set max_pages
         if not isinstance(max_pages, int):
@@ -509,6 +529,26 @@ class ClinicalConductorClient:
         # Set default $top if not provided
         if params.top is None:
             params.top = self.default_top
+        
+        # Enforce CC API limit: maximum 1000 records per request
+        if params.top > 1000:
+            logger.warning(
+                "top_exceeds_maximum",
+                requested=params.top,
+                maximum=1000,
+                endpoint=resource,
+                message="CC API maximum is 1000 records per request, capping to 1000",
+            )
+            params.top = 1000
+        elif params.top < 1:
+            logger.warning(
+                "top_too_low",
+                requested=params.top,
+                minimum=1,
+                endpoint=resource,
+                message="$top must be at least 1, setting to 1",
+            )
+            params.top = 1
 
         skip = params.skip or 0
         page_index = 0
@@ -540,8 +580,21 @@ class ClinicalConductorClient:
             # Build URL
             # Base URL should end with /CCSWEB/ (not /CCSWEB/api/v1)
             # Resource should start with /api/v1/...
+            
+            # Enforce CC API limit: maximum 1000 records per request
+            top_value = params.top if params.top is not None else self.default_top
+            if top_value > 1000:
+                logger.warning(
+                    "top_exceeds_maximum",
+                    requested=top_value,
+                    maximum=1000,
+                    endpoint=resource,
+                    message="CC API maximum is 1000 records per request, capping to 1000",
+                )
+                top_value = 1000
+            
             current_params = ODataParams(
-                top=params.top,
+                top=top_value,
                 skip=skip,
                 filter=params.filter,
                 orderby=params.orderby,

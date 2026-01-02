@@ -1,13 +1,14 @@
 """Job Executor for ETL jobs.
 
 Executes individual ETL jobs, handling both parameterized and non-parameterized jobs,
-coordinating API calls and data loading.
+coordinating API calls and data loading. Supports checkpoint/resume and timeout handling.
 """
 
 import json
+import signal
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import psycopg2
@@ -22,6 +23,55 @@ from src.db import DataLoader, get_pool
 from src.metrics import get_metrics_collector
 
 logger = structlog.get_logger(__name__)
+
+
+class JobTimeoutError(Exception):
+    """Raised when a job exceeds its timeout."""
+
+    pass
+
+
+class CheckpointData:
+    """Checkpoint data for resuming a job."""
+
+    def __init__(
+        self,
+        skip: int = 0,
+        page_index: int = 0,
+        total_records: int = 0,
+        last_checkpoint_time: Optional[datetime] = None,
+    ):
+        self.skip = skip
+        self.page_index = page_index
+        self.total_records = total_records
+        self.last_checkpoint_time = last_checkpoint_time or datetime.utcnow()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "skip": self.skip,
+            "page_index": self.page_index,
+            "total_records": self.total_records,
+            "last_checkpoint_time": self.last_checkpoint_time.isoformat()
+            if self.last_checkpoint_time
+            else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CheckpointData":
+        """Create from dictionary."""
+        last_checkpoint = None
+        if data.get("last_checkpoint_time"):
+            try:
+                last_checkpoint = datetime.fromisoformat(data["last_checkpoint_time"])
+            except (ValueError, TypeError):
+                pass
+        return cls(
+            skip=data.get("skip", 0),
+            page_index=data.get("page_index", 0),
+            total_records=data.get("total_records", 0),
+            last_checkpoint_time=last_checkpoint,
+        )
 
 
 @dataclass
@@ -188,6 +238,7 @@ class JobExecutor:
         status: str,
         records_loaded: int = 0,
         error_message: Optional[str] = None,
+        checkpoint: Optional[CheckpointData] = None,
     ) -> None:
         """Update ETL run record.
 
@@ -196,6 +247,7 @@ class JobExecutor:
             status: Run status ('success', 'failed', 'running').
             records_loaded: Number of records loaded.
             error_message: Error message if failed.
+            checkpoint: Optional checkpoint data to save.
         """
         with self.pool.get_connection() as conn:
             cursor = conn.cursor()
@@ -216,18 +268,66 @@ class JobExecutor:
             )
             duration_ms = int(duration_seconds * 1000)  # Convert to milliseconds
 
-            cursor.execute(
-                """
-                UPDATE dw_etl_runs
-                SET run_status = %s,
-                    records_loaded = %s,
-                    error_message = %s,
-                    completed_at = NOW(),
-                    duration_ms = %s
-                WHERE id = %s
-                """,
-                (status, records_loaded, error_message, duration_ms, run_id),
-            )
+            # Build run_context with checkpoint if provided
+            run_context = None
+            if checkpoint:
+                context_dict = checkpoint.to_dict()
+                # Also preserve any existing parameters
+                cursor.execute(
+                    """
+                    SELECT run_context FROM dw_etl_runs WHERE id = %s
+                    """,
+                    (run_id,),
+                )
+                existing_context = cursor.fetchone()[0]
+                if existing_context:
+                    try:
+                        existing_dict = json.loads(existing_context)
+                        # Merge checkpoint into existing context
+                        existing_dict["checkpoint"] = context_dict
+                        run_context = json.dumps(existing_dict)
+                    except (json.JSONDecodeError, TypeError):
+                        # If existing context isn't valid JSON, create new
+                        run_context = json.dumps({"checkpoint": context_dict})
+                else:
+                    run_context = json.dumps({"checkpoint": context_dict})
+
+            # Update with duration_ms (database column name)
+            if run_context:
+                cursor.execute(
+                    """
+                    UPDATE dw_etl_runs
+                    SET run_status = %s,
+                        records_loaded = %s,
+                        error_message = %s,
+                        completed_at = CASE WHEN %s != 'running' THEN NOW() ELSE NULL END,
+                        duration_ms = %s,
+                        run_context = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        status,
+                        records_loaded,
+                        error_message,
+                        status,
+                        duration_ms,
+                        run_context,
+                        run_id,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE dw_etl_runs
+                    SET run_status = %s,
+                        records_loaded = %s,
+                        error_message = %s,
+                        completed_at = CASE WHEN %s != 'running' THEN NOW() ELSE NULL END,
+                        duration_ms = %s
+                    WHERE id = %s
+                    """,
+                    (status, records_loaded, error_message, status, duration_ms, run_id),
+                )
 
             # Update job's last_run_* fields
             cursor.execute(
@@ -250,7 +350,39 @@ class JobExecutor:
                 status=status,
                 records_loaded=records_loaded,
                 duration_seconds=duration_seconds,
+                checkpoint=checkpoint.to_dict() if checkpoint else None,
             )
+
+    def get_checkpoint(self, run_id: int) -> Optional[CheckpointData]:
+        """Get checkpoint data from a run.
+
+        Args:
+            run_id: Run ID.
+
+        Returns:
+            CheckpointData if found, None otherwise.
+        """
+        with self.pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT run_context FROM dw_etl_runs WHERE id = %s
+                """,
+                (run_id,),
+            )
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                return None
+
+            try:
+                context = json.loads(row[0])
+                checkpoint_data = context.get("checkpoint")
+                if checkpoint_data:
+                    return CheckpointData.from_dict(checkpoint_data)
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+
+            return None
 
     def get_parameter_values(
         self,
@@ -336,6 +468,8 @@ class JobExecutor:
         job_id: int,
         dry_run: bool = False,
         parameters: Optional[dict[str, Any]] = None,
+        resume_from_checkpoint: bool = False,
+        timeout_seconds: Optional[int] = None,
     ) -> ExecutionResult:
         """Execute an ETL job.
 
@@ -343,6 +477,8 @@ class JobExecutor:
             job_id: Job ID to execute.
             dry_run: If True, don't write to database.
             parameters: Optional parameters (for testing parameterized jobs).
+            resume_from_checkpoint: If True, resume from saved checkpoint if available.
+            timeout_seconds: Maximum execution time in seconds.
 
         Returns:
             ExecutionResult with execution details.
@@ -358,16 +494,55 @@ class JobExecutor:
         # Get API client for this job (use credentials from database if source_instance_id is set)
         api_client = self._get_api_client(job_config.source_instance_id)
 
+        # Check for existing run to resume from
+        run_id: Optional[int] = None
+        if resume_from_checkpoint:
+            # Find the most recent running or failed run with a checkpoint
+            with self.pool.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, run_status, run_context
+                    FROM dw_etl_runs
+                    WHERE job_id = %s
+                      AND run_status IN ('running', 'failed')
+                      AND run_context IS NOT NULL
+                      AND run_context::text LIKE '%%checkpoint%%'
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """,
+                    (job_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    run_id, status, context = row
+                    logger.info(
+                        "resuming_existing_run",
+                        job_id=job_id,
+                        run_id=run_id,
+                        previous_status=status,
+                    )
+                else:
+                    logger.info(
+                        "no_checkpoint_found",
+                        job_id=job_id,
+                        message="No checkpoint found, starting new run",
+                    )
+
+        # Create new run if not resuming
+        if run_id is None:
+            run_id = self.create_run(job_id, parameters)
+
         logger.info(
             "job_execution_started",
             job_id=job_id,
             job_name=job_config.name,
+            run_id=run_id,
             requires_parameters=job_config.requires_parameters,
             dry_run=dry_run,
+            resume_from_checkpoint=resume_from_checkpoint,
+            timeout_seconds=timeout_seconds,
         )
-
-        # Create run record
-        run_id = self.create_run(job_id, parameters)
 
         try:
             total_records = 0
@@ -427,6 +602,8 @@ class JobExecutor:
                         timestamp_field_name=job_config.timestamp_field_name,
                         parameters=param_set,
                         instance_id=job_config.source_instance_id,
+                        resume_from_checkpoint=resume_from_checkpoint,
+                        timeout_seconds=timeout_seconds,
                     )
 
                     total_records += records
@@ -444,6 +621,8 @@ class JobExecutor:
                     timestamp_field_name=job_config.timestamp_field_name,
                     parameters=None,
                     instance_id=job_config.source_instance_id,
+                    resume_from_checkpoint=resume_from_checkpoint,
+                    timeout_seconds=timeout_seconds,
                 )
 
                 total_records = records
@@ -480,6 +659,40 @@ class JobExecutor:
                 run_id=run_id,
                 status="success",
                 records_loaded=total_records,
+                duration_seconds=duration,
+            )
+
+        except JobTimeoutError as e:
+            # Timeout errors: keep run as 'running' with checkpoint saved
+            error_message = str(e)
+            # Get current records_loaded from checkpoint
+            checkpoint = self.get_checkpoint(run_id)
+            records_loaded = checkpoint.total_records if checkpoint else 0
+            
+            self.update_run(
+                run_id=run_id,
+                status="running",  # Keep as running so it can be resumed
+                records_loaded=records_loaded,
+                error_message=error_message,
+            )
+
+            duration = time.time() - start_time
+
+            logger.warning(
+                "job_execution_timeout",
+                job_id=job_id,
+                run_id=run_id,
+                error=error_message,
+                duration_seconds=duration,
+                records_loaded=records_loaded,
+                message="Job timed out but checkpoint saved. Retry to resume.",
+            )
+
+            return ExecutionResult(
+                run_id=run_id,
+                status="running",  # Return as running, not failed
+                records_loaded=records_loaded,
+                error_message=error_message,
                 duration_seconds=duration,
             )
 
@@ -656,6 +869,8 @@ class JobExecutor:
         timestamp_field_name: str = "lastUpdatedOn",
         parameters: Optional[dict[str, Any]] = None,
         instance_id: Optional[int] = None,
+        resume_from_checkpoint: bool = False,
+        timeout_seconds: Optional[int] = None,
     ) -> int:
         """Fetch data from API and load to staging.
 
@@ -669,10 +884,36 @@ class JobExecutor:
             incremental_load: If True, only fetch records modified since last run.
             timestamp_field_name: Name of timestamp field to filter on.
             parameters: Optional parameters for parameterized jobs.
+            resume_from_checkpoint: If True, resume from saved checkpoint.
+            timeout_seconds: Maximum execution time in seconds.
 
         Returns:
             Number of records loaded.
+
+        Raises:
+            JobTimeoutError: If job exceeds timeout.
         """
+        # Set timeout
+        settings = get_settings()
+        timeout = timeout_seconds or settings.etl.default_timeout_seconds
+        start_time = time.time()
+
+        # Load checkpoint if resuming
+        checkpoint: Optional[CheckpointData] = None
+        initial_skip = 0
+        if resume_from_checkpoint:
+            checkpoint = self.get_checkpoint(etl_run_id)
+            if checkpoint:
+                initial_skip = checkpoint.skip
+                logger.info(
+                    "resuming_from_checkpoint",
+                    endpoint=endpoint,
+                    etl_run_id=etl_run_id,
+                    skip=initial_skip,
+                    page_index=checkpoint.page_index,
+                    total_records=checkpoint.total_records,
+                )
+
         # Fetch data from API
         logger.info(
             "fetching_api_data",
@@ -680,13 +921,20 @@ class JobExecutor:
             etl_job_id=etl_job_id,
             etl_run_id=etl_run_id,
             incremental_load=incremental_load,
+            resume_from_skip=initial_skip,
+            timeout_seconds=timeout,
         )
 
         # Use provided client or default
         client = api_client or self.api_client
 
         # Build OData params with incremental filter if enabled
-        odata_params = None
+        from src.api.client import ODataParams
+
+        odata_params = ODataParams()
+        if initial_skip > 0:
+            odata_params.skip = initial_skip
+
         if incremental_load:
             last_run_time = self._get_last_successful_run_timestamp(
                 etl_job_id, parameters
@@ -695,9 +943,10 @@ class JobExecutor:
                 # Format as OData DateTimeOffset: YYYY-MM-DDTHH:mm:ss.fffZ
                 filter_date = last_run_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 filter_expr = f"{timestamp_field_name} gt {filter_date}"
-                from src.api.client import ODataParams
-
-                odata_params = ODataParams(filter=filter_expr)
+                if odata_params.filter:
+                    odata_params.filter = f"({odata_params.filter}) and ({filter_expr})"
+                else:
+                    odata_params.filter = filter_expr
                 logger.info(
                     "incremental_filter_applied",
                     endpoint=endpoint,
@@ -710,15 +959,39 @@ class JobExecutor:
 
         # Accumulate records in batches and load incrementally
         current_batch = []
-        total_loaded = 0
+        total_loaded = checkpoint.total_records if checkpoint else 0
         total_inserted = 0
         total_updated = 0
-        page_count = 0
+        page_count = checkpoint.page_index if checkpoint else 0
+        skip = initial_skip
+        last_checkpoint_time = time.time()
+        checkpoint_interval = 60  # Save checkpoint every 60 seconds
 
         try:
             for page in client.get_odata(
                 endpoint, params=odata_params, page_mode="iterator", dry_run=dry_run
             ):
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    # Save checkpoint before raising timeout
+                    checkpoint = CheckpointData(
+                        skip=skip,
+                        page_index=page_count,
+                        total_records=total_loaded,
+                    )
+                    self.update_run(
+                        etl_run_id,
+                        "running",
+                        records_loaded=total_loaded,
+                        checkpoint=checkpoint,
+                    )
+                    raise JobTimeoutError(
+                        f"Job exceeded timeout of {timeout} seconds (elapsed: {elapsed:.1f}s). "
+                        f"Progress saved: {total_loaded} records loaded, skip={skip}. "
+                        f"Resume by retrying the run."
+                    )
+
                 page_count += 1
                 # Validate page.items is a list
                 if not isinstance(page.items, list):
@@ -774,6 +1047,52 @@ class JobExecutor:
                         # Clear batch for next iteration
                         current_batch = []
 
+                # Update skip for next iteration (estimate based on page size)
+                if page.items:
+                    skip += len(page.items)
+                elif page.next_link:
+                    # Parse next_link to get skip value if available
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(page.next_link)
+                    query_params = parse_qs(parsed.query)
+                    skip_str = query_params.get("$skip", [None])[0]
+                    if skip_str:
+                        try:
+                            skip = int(skip_str)
+                        except ValueError:
+                            skip += len(page.items) if page.items else odata_params.top or 100
+                    else:
+                        skip += len(page.items) if page.items else odata_params.top or 100
+                else:
+                    skip += len(page.items) if page.items else odata_params.top or 100
+
+                # Save checkpoint periodically (every checkpoint_interval seconds)
+                current_time = time.time()
+                if current_time - last_checkpoint_time >= checkpoint_interval:
+                    checkpoint = CheckpointData(
+                        skip=skip,
+                        page_index=page_count,
+                        total_records=total_loaded,
+                    )
+                    self.update_run(
+                        etl_run_id,
+                        "running",
+                        records_loaded=total_loaded,
+                        checkpoint=checkpoint,
+                    )
+                    last_checkpoint_time = current_time
+                    logger.debug(
+                        "checkpoint_saved",
+                        endpoint=endpoint,
+                        etl_run_id=etl_run_id,
+                        skip=skip,
+                        page_count=page_count,
+                        total_loaded=total_loaded,
+                    )
+
+        except JobTimeoutError:
+            # Re-raise timeout errors (checkpoint already saved)
+            raise
         except Exception as e:
             logger.error(
                 "error_fetching_data",
@@ -839,6 +1158,14 @@ class JobExecutor:
                 )
             else:
                 total_loaded += len(current_batch)
+
+        # Clear checkpoint on successful completion
+        self.update_run(
+            etl_run_id,
+            "running",
+            records_loaded=total_loaded,
+            checkpoint=None,  # Clear checkpoint on success
+        )
 
         logger.info(
             "api_data_fetched_and_loaded",

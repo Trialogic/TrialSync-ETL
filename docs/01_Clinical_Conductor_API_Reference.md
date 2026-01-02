@@ -1,7 +1,8 @@
 # Clinical Conductor API Reference Guide
 
-**Document Version**: 1.0  
-**Last Updated**: December 15, 2025  
+**Document Version**: 1.1  
+**Last Updated**: January 2, 2026  
+**Note**: See [OData Query Patterns](#odata-query-patterns) for critical API limits (default: 50, max: 1000 records per request).  
 **Author**: Manus AI  
 **Purpose**: Comprehensive reference for Clinical Conductor API endpoints, validation status, and integration patterns
 
@@ -259,17 +260,38 @@ The following endpoints **do not exist** in the Clinical Conductor API and retur
 
 Most list endpoints support OData query parameters for filtering, sorting, and pagination.
 
+### ⚠️ **CRITICAL: OData Limits**
+
+**Supported OData Parameters:**
+- `$filter` - Filter results
+- `$top` - Limit number of records returned
+- `$skip` - Skip records for pagination
+- `$count` - Get total count of records
+- `$orderby` - Sort results
+
+**Record Limit and Page Size:**
+- **Default page size**: 50 records per request
+- **Maximum page size**: 1000 records per request
+- **Important**: Any request will stop after 50 records unless `$top` is explicitly set
+- **Best Practice**: Use `$top=1000` for maximum efficiency when fetching large datasets
+
+**Impact on ETL Jobs:**
+- Jobs using default settings (100 records) are within limits ✅
+- For large datasets, use `$top=1000` to minimize API calls
+- Never request more than 1000 records in a single request
+- The API client automatically enforces these limits
+
 ### Supported OData Parameters
 
-| Parameter | Purpose | Example |
-|-----------|---------|---------|
-| `$top` | Limit results | `?$top=100` |
-| `$skip` | Skip records (pagination) | `?$skip=100` |
-| `$filter` | Filter results | `?$filter=status eq 'Active'` |
-| `$orderby` | Sort results | `?$orderby=createdDate desc` |
-| `$select` | Select specific fields | `?$select=id,name,status` |
-| `$expand` | Include related entities | `?$expand=study,site` |
-| `$count` | Include total count | `?$count=true` |
+| Parameter | Purpose | Example | Limits |
+|-----------|---------|---------|--------|
+| `$top` | Limit results | `?$top=100` | **Max: 1000** (default: 50) |
+| `$skip` | Skip records (pagination) | `?$skip=100` | No limit |
+| `$filter` | Filter results | `?$filter=status eq 'Active'` | Supported |
+| `$orderby` | Sort results | `?$orderby=createdDate desc` | Supported |
+| `$count` | Include total count | `?$count=true` | Supported |
+| `$select` | Select specific fields | `?$select=id,name,status` | May not be supported |
+| `$expand` | Include related entities | `?$expand=study,site` | May not be supported |
 
 ### Example Queries
 
