@@ -505,10 +505,10 @@ class ETLExecutor:
     def insert_staging_record(self, table, data, job_id, run_id):
         """Insert record into staging table"""
         query = f"""
-            INSERT INTO {table} (data, source_id, etl_job_id, etl_run_id, loaded_at)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO {table} (data, source_id, source_instance_id, etl_job_id, etl_run_id, loaded_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """
-        source_id = data.get('id', data.get('uid'))
+        source_id = instance_id  # From source_instance_id in job config
         self.cursor.execute(query, (
             json.dumps(data),
             source_id,
