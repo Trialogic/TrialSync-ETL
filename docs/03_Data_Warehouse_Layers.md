@@ -93,13 +93,19 @@ All 106 staging tables follow this pattern:
 CREATE TABLE dim_example_staging (
     id SERIAL PRIMARY KEY,
     data JSONB NOT NULL,                    -- Full API response
-    source_id VARCHAR(255),                 -- Original ID from source
+    source_id VARCHAR(255),                 -- Instance ID (from source_instance_id in job config)
+    source_instance_id INTEGER,             -- FK to dw_api_credentials (for composite unique constraint)
     etl_job_id INTEGER,                     -- FK to dw_etl_jobs
     etl_run_id INTEGER,                     -- FK to dw_etl_runs
     loaded_at TIMESTAMP DEFAULT NOW(),      -- Load timestamp
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Composite unique constraint: (source_instance_id, data->>'id')
+-- Ensures uniqueness per instance (multi-tenant support)
+CREATE UNIQUE INDEX idx_example_instance_entity 
+ON dim_example_staging(source_instance_id, (data->>'id'));
 
 -- Indexes for performance
 CREATE INDEX idx_example_source_id ON dim_example_staging(source_id);
